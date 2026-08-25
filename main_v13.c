@@ -57,15 +57,46 @@ static void send_status_v13(int fd)
   time_t now=time(NULL);
   long up=now>=astro_started_at?(long)(now-astro_started_at):0;
   snprintf(j,sizeof(j),
-    "{\"ok\":true,\"console\":\"PlayStation 5\",\"console_online\":true,\"astro_online\":true,\"http_port\":%d,\"version\":\"0.13-registry-fix\",\"uptime_seconds\":%ld,\"remote\":\"standby\",\"prospero_online\":%s}",
+    "{\"ok\":true,\"console\":\"PlayStation 5\",\"console_online\":true,\"astro_online\":true,\"http_port\":%d,\"version\":\"0.13.1-service-edit\",\"uptime_seconds\":%ld,\"remote\":\"standby\",\"prospero_online\":%s}",
     ASTRO_PORT,up,tcp_open(PROSPERO_PORT)?"true":"false");
   send_json(fd,"200 OK",j);
 }
 
+static void send_update_service_v13(int fd,const char *req)
+{
+  char process[128],name[96],port_s[16];
+  int port;
+  astro_service_t *s;
+
+  if(!extract_form(req,"process",process,sizeof(process))||
+     !extract_form(req,"name",name,sizeof(name))||
+     !extract_form(req,"port",port_s,sizeof(port_s))){
+    send_json(fd,"400 Bad Request","{\"ok\":false,\"error\":\"missing_fields\"}");
+    return;
+  }
+
+  port=atoi(port_s);
+  if(port<=0||port>=65536){
+    send_json(fd,"400 Bad Request","{\"ok\":false,\"error\":\"invalid_port\"}");
+    return;
+  }
+
+  s=by_process(process);
+  if(!s){
+    send_json(fd,"404 Not Found","{\"ok\":false,\"error\":\"service_not_found\"}");
+    return;
+  }
+
+  snprintf(s->name,sizeof(s->name),"%s",name);
+  s->port=port;
+  save_registry();
+  send_json(fd,"200 OK","{\"ok\":true,\"saved\":true}");
+}
+
 static const char *dash_patch_v13=
-"<style>.service-state.offline{background:#241d12;border-color:#554326;color:#e6bc73}.service-open:disabled{opacity:.45;cursor:not-allowed;background:#171d25;border-color:#303947;color:#8f9aaa}</style>"
+"<style>.service-state.offline{background:#241d12;border-color:#554326;color:#e6bc73}.service-open:disabled{opacity:.45;cursor:not-allowed;background:#171d25;border-color:#303947;color:#8f9aaa}.service-edit{margin-top:8px;height:34px;border-radius:7px;border:1px solid #3a4554;background:#171d25;color:#b9c4d1;font-weight:750;width:100%;cursor:pointer}.service-editbox{display:none;margin-top:10px;padding-top:10px;border-top:1px solid #29313d}.service-editbox.show{display:block}.service-cancel{margin-top:8px;height:32px;border-radius:7px;border:1px solid #3a4554;background:#11161d;color:#9ba7b6;width:100%;cursor:pointer}</style>"
 "<script>"
-"card=function(x){const c=document.createElement('div');c.className='service-card';if(x.known){const on=!!x.active;c.innerHTML=\"<div class='service-top'><h4>\"+esc(x.name)+\"</h4><span class='service-state \"+(on?'':'offline')+\"'>\"+(on?'ATIVO':'CONFIGURADO')+\"</span></div><div class='service-process'>\"+esc(x.process)+\"</div><span class='service-chip'>INTERNO · 127.0.0.1:\"+x.port+\"</span><button class='service-open' \"+(on?'':'disabled')+\">\"+(on?'Abrir dentro do Astro':'Serviço web offline')+\"</button>\";if(on)c.querySelector('.service-open').onclick=()=>location.href=x.url}else{c.innerHTML=\"<div class='service-top'><h4>Novo serviço detectado</h4><span class='service-state'>NOVO</span></div><div class='service-process'>\"+esc(x.process)+\"</div><input class='service-input nm' placeholder='Nome do serviço'><input class='service-input pt' inputmode='numeric' placeholder='Porta web'><button class='service-save'>Salvar e ativar proxy</button><button class='service-hide'>Ocultar</button>\";c.querySelector('.service-save').onclick=async()=>{const nm=c.querySelector('.nm').value||x.process,pt=c.querySelector('.pt').value;const r=await fetch('/api/services/register',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'process='+encodeURIComponent(x.process)+'&name='+encodeURIComponent(nm)+'&port='+encodeURIComponent(pt)});if(r.ok)refresh(true)};c.querySelector('.service-hide').onclick=()=>act('/api/services/hide',x.process)}return c};"
+"card=function(x){const c=document.createElement('div');c.className='service-card';if(x.known){const on=!!x.active;c.innerHTML=\"<div class='service-top'><h4>\"+esc(x.name)+\"</h4><span class='service-state \"+(on?'':'offline')+\"'>\"+(on?'ATIVO':'CONFIGURADO')+\"</span></div><div class='service-process'>\"+esc(x.process)+\"</div><span class='service-chip'>INTERNO · 127.0.0.1:\"+x.port+\"</span><button class='service-open' \"+(on?'':'disabled')+\">\"+(on?'Abrir dentro do Astro':'Serviço web offline')+\"</button><button class='service-edit'>Editar serviço</button><div class='service-editbox'><input class='service-input enm' placeholder='Nome do serviço' value='\"+esc(x.name)+\"'><input class='service-input ept' inputmode='numeric' placeholder='Porta web' value='\"+x.port+\"'><button class='service-save esave'>Salvar alterações</button><button class='service-cancel'>Cancelar</button></div>\";if(on)c.querySelector('.service-open').onclick=()=>location.href=x.url;const box=c.querySelector('.service-editbox');c.querySelector('.service-edit').onclick=()=>box.classList.add('show');c.querySelector('.service-cancel').onclick=()=>box.classList.remove('show');c.querySelector('.esave').onclick=async()=>{const nm=c.querySelector('.enm').value||x.process,pt=c.querySelector('.ept').value;const r=await fetch('/api/services/update',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'process='+encodeURIComponent(x.process)+'&name='+encodeURIComponent(nm)+'&port='+encodeURIComponent(pt)});if(r.ok)refresh(true)}}else{c.innerHTML=\"<div class='service-top'><h4>Novo serviço detectado</h4><span class='service-state'>NOVO</span></div><div class='service-process'>\"+esc(x.process)+\"</div><input class='service-input nm' placeholder='Nome do serviço'><input class='service-input pt' inputmode='numeric' placeholder='Porta web'><button class='service-save'>Salvar e ativar proxy</button><button class='service-hide'>Ocultar</button>\";c.querySelector('.service-save').onclick=async()=>{const nm=c.querySelector('.nm').value||x.process,pt=c.querySelector('.pt').value;const r=await fetch('/api/services/register',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'process='+encodeURIComponent(x.process)+'&name='+encodeURIComponent(nm)+'&port='+encodeURIComponent(pt)});if(r.ok)refresh(true)};c.querySelector('.service-hide').onclick=()=>act('/api/services/hide',x.process)}return c};"
 "</script>";
 
 static void send_dashboard_v13(int fd)
@@ -116,7 +147,7 @@ int main(void)
   a.sin_port=htons(ASTRO_PORT);
   if(bind(server,(struct sockaddr*)&a,sizeof(a))<0){close(server);return 1;}
   if(listen(server,8)<0){close(server);return 1;}
-  notify("ASTRO Remote v0.13 registry fix - porta 45821");
+  notify("ASTRO Remote v0.13.1 service edit - porta 45821");
 
   while(running){
     int total;
@@ -175,6 +206,7 @@ int main(void)
     else if(strstr(buf,"GET /api/status ")&&logged(buf))send_status_v13(client);
     else if(strstr(buf,"GET /api/services ")&&logged(buf))send_api_services_v13(client);
     else if(strstr(buf,"POST /api/services/register ")&&logged(buf))send_register(client,buf);
+    else if(strstr(buf,"POST /api/services/update ")&&logged(buf))send_update_service_v13(client,buf);
     else if(strstr(buf,"POST /api/services/hide ")&&logged(buf))send_hide(client,buf,0);
     else if(strstr(buf,"POST /api/services/unhide ")&&logged(buf))send_hide(client,buf,1);
     else if(strstr(buf,"POST /admin/shutdown ")&&logged(buf)){send_response(client,"200 OK",NULL,shutdown_page);running=0;}
