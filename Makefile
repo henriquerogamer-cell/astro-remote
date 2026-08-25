@@ -19,7 +19,7 @@ CFLAGS := -Wall -Werror -g
 
 all: $(ELF)
 
-$(ELF): main.c
+$(ELF): main_v03.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
