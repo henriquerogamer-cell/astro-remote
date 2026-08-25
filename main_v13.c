@@ -1,12 +1,10 @@
-#define main astro_v12_legacy_main
 #define send_api_services send_api_services_v12
 #define send_status send_status_v12
 #define send_dashboard send_dashboard_v12
-#include "main_v12.c"
+#include "main_v12_embed.c"
 #undef send_dashboard
 #undef send_status
 #undef send_api_services
-#undef main
 
 static void send_api_services_v13(int fd)
 {
@@ -152,7 +150,6 @@ int main(void)
     method[0]=path[0]=ver[0]='\0';
     sscanf(buf,"%15s %2047s %15s",method,path,ver);
 
-    /* Logout has priority over every proxy/cookie route. */
     if((!strcmp(path,"/logout")||!strncmp(path,"/logout?",8))&&logged(buf)){
       send_logout_v13(client);
       close(client);
