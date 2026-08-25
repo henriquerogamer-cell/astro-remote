@@ -19,11 +19,14 @@ CFLAGS := -Wall -Werror -g
 
 all: $(ELF)
 
-$(ELF): main_v13.c main_v12.c main_v03.c astro_process_name.c
+main_v12_embed.c: main_v12.c
+	sed 's/^int main(void)$$/int astro_v12_legacy_main(void)/' $< > $@
+
+$(ELF): main_v13.c main_v12_embed.c main_v03.c astro_process_name.c
 	$(CC) $(CFLAGS) -o $@ main_v13.c astro_process_name.c
 
 clean:
-	rm -f $(ELF)
+	rm -f $(ELF) main_v12_embed.c
 
 test: $(ELF)
 	$(PS5_DEPLOY) -h $(PS5_HOST) -p $(PS5_PORT) $^
