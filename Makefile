@@ -19,8 +19,8 @@ CFLAGS := -Wall -Werror -g
 
 all: $(ELF)
 
-$(ELF): main_v11.c main_v03.c
-	$(CC) $(CFLAGS) -o $@ main_v11.c
+$(ELF): main_v11.c main_v03.c astro_process_name.c
+	$(CC) $(CFLAGS) -o $@ main_v11.c astro_process_name.c
 
 clean:
 	rm -f $(ELF)
