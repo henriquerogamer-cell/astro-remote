@@ -1,3 +1,4 @@
+#include <signal.h>
 #include "main_v13_embed.c"
 
 static const char *dash_patch_v132=
@@ -47,6 +48,9 @@ int main(void)
   load_registry();
   load_hidden();
 
+  /* A short network reset must not terminate the whole Astro process. */
+  signal(SIGPIPE,SIG_IGN);
+
   server=socket(AF_INET,SOCK_STREAM,0);
   if(server<0)return 1;
   setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt));
@@ -56,7 +60,7 @@ int main(void)
   a.sin_port=htons(ASTRO_PORT);
   if(bind(server,(struct sockaddr*)&a,sizeof(a))<0){close(server);return 1;}
   if(listen(server,8)<0){close(server);return 1;}
-  notify("ASTRO Remote v0.13.2 editor fix - porta 45821");
+  notify("ASTRO Remote v0.13.3 SIGPIPE guard - porta 45821");
 
   while(running){
     int total;
