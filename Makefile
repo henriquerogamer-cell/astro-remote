@@ -19,8 +19,8 @@ CFLAGS := -Wall -Werror -g
 
 all: $(ELF)
 
-$(ELF): main_v06.c main_v03.c
-	$(CC) $(CFLAGS) -o $@ main_v06.c
+$(ELF): main_v07.c main_v03.c
+	$(CC) $(CFLAGS) -o $@ main_v07.c
 
 clean:
 	rm -f $(ELF)
