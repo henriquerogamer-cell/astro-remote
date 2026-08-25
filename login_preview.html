@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Astro Remote · Login</title>
+<style>
+:root{--bg:#0a0d12;--panel:#151a22;--panel2:#11161d;--line:#2a313d;--text:#f4f7fb;--muted:#8f9aaa;--blue:#1477ff;--blue2:#0d5fd8;--green:#38d486;--danger:#ef5350}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,Segoe UI,Arial,sans-serif;display:grid;place-items:center;overflow:hidden}
+body:before{content:'';position:fixed;inset:0;background:linear-gradient(135deg,rgba(20,119,255,.09),transparent 34%),radial-gradient(circle at 78% 22%,rgba(20,119,255,.09),transparent 28%);pointer-events:none}
+.login-shell{width:min(920px,calc(100% - 32px));display:grid;grid-template-columns:1.05fr .95fr;border:1px solid #242b35;border-radius:12px;overflow:hidden;background:#10141a;box-shadow:0 30px 90px rgba(0,0,0,.45);position:relative}
+.brand-side{padding:46px 44px;background:linear-gradient(145deg,#111820,#0d1218 62%,#0b1016);border-right:1px solid #242b35;display:flex;flex-direction:column;min-height:520px}
+.brand{display:flex;align-items:center;gap:13px}.logo{width:42px;height:42px;border-radius:10px;background:linear-gradient(145deg,#2288ff,#0c4eaf);display:grid;place-items:center;font-weight:900;font-size:19px;box-shadow:0 0 26px rgba(20,119,255,.22)}.brand strong{font-size:17px}.brand small{display:block;color:var(--muted);margin-top:2px}
+.hero{margin:auto 0}.eyebrow{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#6daaff;font-weight:800;margin-bottom:12px}.hero h1{margin:0;font-size:36px;line-height:1.08}.hero p{margin:14px 0 0;color:var(--muted);line-height:1.65;max-width:390px}.feature{display:flex;gap:10px;align-items:flex-start;margin-top:22px;color:#cbd4df;font-size:13px}.feature i{width:23px;height:23px;border-radius:6px;background:#102d53;border:1px solid #18477e;color:#7db5ff;display:grid;place-items:center;font-style:normal;font-size:11px;flex:none}.feature span{color:var(--muted);display:block;margin-top:2px;font-size:12px}
+.brand-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#697586;font-size:11px}.online{display:flex;align-items:center;gap:7px;color:#80e0aa}.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 10px rgba(56,212,134,.55)}
+.form-side{padding:48px 44px;background:var(--panel);display:flex;align-items:center}.form-wrap{width:100%}.form-wrap h2{font-size:23px;margin:0 0 6px}.form-wrap>p{margin:0 0 28px;color:var(--muted);font-size:13px;line-height:1.5}.field{margin-bottom:16px}.field label{display:block;color:#b8c2ce;font-size:12px;font-weight:700;margin:0 0 7px}.input-wrap{position:relative}.input-wrap input{width:100%;height:44px;background:#10151c;border:1px solid #2a323e;border-radius:7px;color:#edf3fb;padding:0 13px;font-size:14px;outline:none;transition:.15s}.input-wrap input::placeholder{color:#626e7e}.input-wrap input:focus{border-color:#176fdc;box-shadow:0 0 0 3px rgba(20,119,255,.10)}
+.login-btn{width:100%;height:44px;border:0;border-radius:7px;background:linear-gradient(#2084ff,#1269dc);color:white;font-size:13px;font-weight:800;cursor:pointer;margin-top:5px}.login-btn:hover{filter:brightness(1.06)}
+.security{margin-top:18px;padding-top:17px;border-top:1px solid #252c36;display:flex;gap:10px;align-items:flex-start}.shield{width:29px;height:29px;border-radius:7px;background:#111d18;border:1px solid #214734;color:#81dfaa;display:grid;place-items:center;font-size:13px;flex:none}.security strong{font-size:12px;display:block}.security span{display:block;color:#697586;font-size:11px;line-height:1.45;margin-top:3px}
+@media(max-width:760px){body{overflow:auto;padding:16px}.login-shell{grid-template-columns:1fr}.brand-side{display:none}.form-side{padding:34px 24px;min-height:500px}}
+</style>
+</head>
+<body>
+<main class="login-shell">
+<section class="brand-side">
+  <div class="brand"><div class="logo">A</div><div><strong>Astro Remote</strong><small>PS5 Control Hub</small></div></div>
+  <div class="hero">
+    <div class="eyebrow">Acesso remoto ao seu console</div>
+    <h1>Seu PS5.<br>De qualquer lugar.</h1>
+    <p>Entre no Astro para administrar serviços, executar ELFs, abrir o Pegasus e acessar a futura camada Remote direto pelo navegador.</p>
+    <div class="feature"><i>R</i><div><b>Remote first</b><span>Vídeo, controles e sessão remota integrados ao mesmo painel.</span></div></div>
+    <div class="feature"><i>ELF</i><div><b>Control Hub</b><span>Payloads, browser, arquivos e serviços centralizados.</span></div></div>
+  </div>
+  <div class="brand-foot"><span>Astro Remote v0.3</span><span class="online"><span class="dot"></span>ASTRO DISPONÍVEL</span></div>
+</section>
+<section class="form-side">
+  <div class="form-wrap">
+    <h2>Entrar no Astro</h2>
+    <p>Use suas credenciais para acessar o painel do console.</p>
+    <form method="POST" action="/login">
+      <div class="field"><label for="username">Usuário</label><div class="input-wrap"><input id="username" name="username" autocomplete="username" placeholder="Digite seu usuário" required></div></div>
+      <div class="field"><label for="password">Senha</label><div class="input-wrap"><input id="password" name="password" type="password" autocomplete="current-password" placeholder="Digite sua senha" required></div></div>
+      <button class="login-btn" type="submit">Entrar no painel</button>
+    </form>
+    <div class="security"><div class="shield">✓</div><div><strong>Sessão protegida</strong><span>O acesso ao Astro exige autenticação antes de liberar funções do console e do Remote.</span></div></div>
+  </div>
+</section>
+</main>
+</body>
+</html>
