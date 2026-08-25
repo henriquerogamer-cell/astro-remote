@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Astro Remote UI Preview</title>
+<style>
+:root{--bg:#05070c;--panel:#0d1220;--text:#eef5ff;--muted:#93a3bb;--line:rgba(255,255,255,.07);--gold:#caa66a;--cyan:#78d7ff;--green:#4ade80;--danger:#ef4444}
+*{box-sizing:border-box}html,body{min-height:100%}
+body{margin:0;padding:24px;font-family:Inter,Segoe UI,Arial,sans-serif;color:var(--text);background:radial-gradient(circle at 12% 0,#172747 0,#090d18 34%,#05070c 72%)}
+body:before,body:after{content:'';position:fixed;border-radius:999px;filter:blur(85px);opacity:.24;pointer-events:none}
+body:before{width:330px;height:330px;background:#1d4ed8;left:-120px;top:-80px}
+body:after{width:300px;height:300px;background:#7c3aed;right:-100px;bottom:-100px}
+.app{position:relative;max-width:1180px;margin:0 auto;display:grid;grid-template-columns:310px 1fr;gap:22px}
+.frame{padding:1px;border-radius:28px;background:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.035));box-shadow:0 28px 100px rgba(0,0,0,.48)}
+.panel{height:100%;border-radius:27px;padding:25px;background:linear-gradient(180deg,rgba(15,21,38,.97),rgba(7,10,18,.97));border:1px solid rgba(255,255,255,.035)}
+.brand{display:flex;align-items:center;gap:14px}.mark{width:54px;height:54px;border-radius:17px;display:flex;align-items:center;justify-content:center;font-size:23px;color:var(--gold);background:linear-gradient(180deg,rgba(202,166,106,.15),rgba(120,215,255,.08));border:1px solid rgba(202,166,106,.22)}
+.eyebrow{color:var(--gold);font-size:10px;letter-spacing:.24em;text-transform:uppercase;margin-bottom:5px}h1{margin:0;font-size:27px}.muted{color:var(--muted);line-height:1.55;font-size:14px}
+.statusbox{margin:20px 0 16px;padding:16px;border-radius:19px;background:rgba(120,215,255,.055);border:1px solid rgba(120,215,255,.1)}
+.statusrow{display:flex;align-items:center;justify-content:space-between;gap:12px}.statusrow strong{font-size:14px}.statusrow small{display:block;margin-top:4px;color:var(--muted)}
+.online{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.14);font-size:11px;color:#ddffe6;font-weight:800}.dot{width:8px;height:8px;border-radius:999px;background:var(--green);box-shadow:0 0 14px rgba(74,222,128,.75)}
+.section{margin-top:20px}.sectiontitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;color:#cfd9eb;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.sectiontitle span:last-child{color:var(--muted);letter-spacing:0;text-transform:none}
+.quick{display:grid;gap:9px}.quickitem{padding:13px 14px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid var(--line)}.quickitem strong{display:block;font-size:13px;margin-bottom:4px}.quickitem small{color:var(--muted)}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px}.top h2{margin:5px 0 0;font-size:31px}.top p{margin:10px 0 0;color:var(--muted);max-width:600px;line-height:1.55}
+.chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.chip{padding:9px 12px;border-radius:999px;background:rgba(255,255,255,.035);border:1px solid var(--line);font-size:11px;color:#dbe7fb}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.elf{min-height:188px;padding:18px;border-radius:21px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.018));border:1px solid var(--line);display:flex;flex-direction:column;justify-content:space-between}
+.elfhead{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.icon{width:45px;height:45px;border-radius:15px;display:flex;align-items:center;justify-content:center;background:rgba(120,215,255,.07);border:1px solid rgba(120,215,255,.11);font-weight:900;color:var(--cyan)}
+.badge{padding:7px 9px;border-radius:999px;background:rgba(202,166,106,.08);border:1px solid rgba(202,166,106,.14);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#e8d2ad}.elf h3{margin:14px 0 6px;font-size:18px}.elf p{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
+.actions{display:flex;gap:9px;margin-top:16px}.btn{border:0;border-radius:13px;padding:12px 14px;font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;cursor:pointer}.primary{background:linear-gradient(180deg,#e1c28d,#b78c49);color:#171008}.secondary{background:rgba(120,215,255,.08);border:1px solid rgba(120,215,255,.14);color:#ddf6ff}.danger{background:linear-gradient(180deg,#ef4444,#991b1b);color:#fff}
+.note{margin-top:16px;padding:13px 14px;border-radius:15px;background:rgba(255,255,255,.025);border:1px solid var(--line);color:var(--muted);font-size:12px;line-height:1.5}.shutdown{margin-top:16px}
+@media(max-width:980px){.app{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.chips{justify-content:flex-start}.top{flex-direction:column}}@media(max-width:560px){body{padding:12px}.panel{padding:20px}.top h2{font-size:25px}.actions{flex-direction:column}.btn{width:100%}}
+</style>
+</head>
+<body>
+<main class="app">
+<aside class="frame"><div class="panel">
+<div class="brand"><div class="mark">A</div><div><div class="eyebrow">Astro Console</div><h1>Astro Remote</h1></div></div>
+<p class="muted">Hub remoto do PS5 para serviços, ELFs e futuras integrações.</p>
+<div class="statusbox"><div class="statusrow"><div><strong>PlayStation 5</strong><small>Servidor web na porta 45821</small></div><span class="online"><span class="dot"></span>ONLINE</span></div></div>
+<div class="section"><div class="sectiontitle"><span>Acessos rápidos</span><span>Mock</span></div><div class="quick">
+<div class="quickitem"><strong>Pegasus</strong><small>Biblioteca e catálogo remoto.</small></div>
+<div class="quickitem"><strong>Browser</strong><small>Launcher do navegador do PS5.</small></div>
+<div class="quickitem"><strong>ELFs</strong><small>Gerenciamento de payloads.</small></div>
+</div></div>
+</div></aside>
+<section class="frame"><div class="panel">
+<div class="top"><div><div class="eyebrow">Painel principal</div><h2>Biblioteca de serviços</h2><p>A lista ainda é mock, mas a casca visual agora já nasce pronta para virar o painel definitivo do Astro.</p></div><div class="chips"><span class="chip">Visual v0.3</span><span class="chip">Sessão ativa</span><span class="chip">4 ELFs</span></div></div>
+<div class="grid">
+<article class="elf"><div><div class="elfhead"><div class="icon">WEB</div><span class="badge">Launcher</span></div><h3>browser.elf</h3><p>Abre o navegador do PS5 para URLs locais ou configuradas.</p></div><div class="actions"><button class="btn primary">Executar</button><button class="btn secondary">Detalhes</button></div></article>
+<article class="elf"><div><div class="elfhead"><div class="icon">PAD</div><span class="badge">Input</span></div><h3>ghostcontrol.elf</h3><p>Base para controles genéricos e futuras sessões remotas.</p></div><div class="actions"><button class="btn primary">Executar</button><button class="btn secondary">Detalhes</button></div></article>
+<article class="elf"><div><div class="elfhead"><div class="icon">FTP</div><span class="badge">Storage</span></div><h3>ftpsrv.elf</h3><p>Serviço de arquivos para manutenção e integração.</p></div><div class="actions"><button class="btn primary">Executar</button><button class="btn secondary">Detalhes</button></div></article>
+<article class="elf"><div><div class="elfhead"><div class="icon">PG</div><span class="badge">Library</span></div><h3>pegasus.elf</h3><p>Entrada para catálogo, biblioteca e automações futuras.</p></div><div class="actions"><button class="btn primary">Executar</button><button class="btn secondary">Detalhes</button></div></article>
+</div>
+<div class="note">Próxima etapa: logout, rotas mock de execução e depois listagem real dos ELFs.</div>
+<button class="btn danger shutdown">Encerrar Astro</button>
+</div></section>
+</main>
+</body>
+</html>
