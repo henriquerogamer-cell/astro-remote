@@ -13,6 +13,7 @@
 
 #include "remote_worker.h"
 #include "remote_ps5_source.h"
+#include "remote_page_v137.h"
 
 static volatile sig_atomic_t g_worker_running=1;
 static int g_session_active=0;
@@ -61,6 +62,20 @@ static void send_json(int fd,const char *status,const char *body)
     "Content-Length: %zu\r\n"
     "Connection: close\r\n\r\n",
     status,n);
+  send(fd,h,strlen(h),0);
+  send(fd,body,n,0);
+}
+
+static void send_html(int fd,const char *body)
+{
+  char h[512];
+  size_t n=strlen(body);
+  snprintf(h,sizeof(h),
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: text/html; charset=utf-8\r\n"
+    "Cache-Control: no-store\r\n"
+    "Content-Length: %zu\r\n"
+    "Connection: close\r\n\r\n",n);
   send(fd,h,strlen(h),0);
   send(fd,body,n,0);
 }
@@ -131,7 +146,9 @@ int astro_remote_worker_main(void)
       n=recv(c,buf,sizeof(buf)-1,0);
       if(n>0){
         buf[n]='\0';
-        if(strstr(buf,"GET /health "))
+        if(strstr(buf,"GET / "))
+          send_html(c,remote_page_v137);
+        else if(strstr(buf,"GET /health "))
           send_json(c,"200 OK","{\"ok\":true,\"service\":\"astrorem\"}");
         else if(strstr(buf,"GET /status "))
           send_status(c);
