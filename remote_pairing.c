@@ -53,16 +53,11 @@ static int find_process(const char *name)
     for(uint8_t *p=buf;p<buf+sz;){
         int struct_size=*(int *)p;
         if(struct_size<=0||p+(size_t)struct_size>buf+sz)break;
-
         if(struct_size>PS5_KINFO_TDNAME_OFFSET){
             pid_t pid=*(pid_t *)(p+PS5_KINFO_PID_OFFSET);
             const char *tdname=(const char *)(p+PS5_KINFO_TDNAME_OFFSET);
-            if(!strcmp(tdname,name)){
-                found=(int)pid;
-                break;
-            }
+            if(!strcmp(tdname,name)){found=(int)pid;break;}
         }
-
         p+=(size_t)struct_size;
     }
     free(buf);
@@ -81,17 +76,17 @@ static void base64_8(const uint8_t in[8],char out[24])
     static const char t[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     unsigned int i=0,j=0;
     while(i<8){
-        uint32_t a=i<8?in[i++]:0;
-        uint32_t b=i<8?in[i++]:0;
-        uint32_t c=i<8?in[i++]:0;
+        unsigned int rem=8-i;
+        uint32_t a=in[i++];
+        uint32_t b=rem>1?in[i++]:0;
+        uint32_t c=rem>2?in[i++]:0;
         uint32_t v=(a<<16)|(b<<8)|c;
         out[j++]=t[(v>>18)&63];
         out[j++]=t[(v>>12)&63];
-        out[j++]=t[(v>>6)&63];
-        out[j++]=t[v&63];
+        out[j++]=rem>1?t[(v>>6)&63]:'=';
+        out[j++]=rem>2?t[v&63]:'=';
     }
-    out[11]='=';
-    out[12]='\0';
+    out[j]='\0';
 }
 
 static int current_user_and_account(int *user_out,int *idx_out,uint8_t account_id[8])
@@ -120,6 +115,44 @@ static int current_user_and_account(int *user_out,int *idx_out,uint8_t account_i
     return 0;
 }
 
+/* Load libSceRemoteplay inside SceShellUI itself. Loading it in astrorem
+   would only map the module into the worker process, which does not help
+   when we later call Sony's function through the ShellUI tracer. */
+static int ensure_remoteplay_in_shell(pid_t shell_pid,astro_rp_tracer_t *tr,
+                                      uintptr_t calloc_addr,uintptr_t free_addr)
+{
+    static const char *paths[]={
+        "/system/common/lib/libSceRemoteplay.sprx",
+        "/system_ex/common/lib/libSceRemoteplay.sprx",
+        "/system/priv/lib/libSceRemoteplay.sprx"
+    };
+    uintptr_t load_addr;
+
+    if(resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayGeneratePinCode"))
+        return 0;
+
+    load_addr=resolve_symbol_for_pid(shell_pid,"libkernel.sprx","sceKernelLoadStartModule");
+    if(!load_addr)
+        load_addr=resolve_symbol_for_pid(shell_pid,"libkernel_sys.sprx","sceKernelLoadStartModule");
+    if(!load_addr)return -25;
+
+    for(size_t i=0;i<sizeof(paths)/sizeof(paths[0]);i++){
+        size_t len=strlen(paths[i])+1;
+        uintptr_t remote_path=astro_rp_tracer_call(tr,calloc_addr,1,len,0,0,0,0);
+        if(remote_path==0||remote_path==(uintptr_t)-1)continue;
+
+        if(mdbg_copyin(shell_pid,paths[i],remote_path,len)==0){
+            uintptr_t load_rc=astro_rp_tracer_call(tr,load_addr,remote_path,0,0,0,0,0);
+            (void)load_rc;
+        }
+        astro_rp_tracer_call(tr,free_addr,remote_path,0,0,0,0,0);
+
+        if(resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayGeneratePinCode"))
+            return 0;
+    }
+    return -26;
+}
+
 int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
 {
     astro_remote_pairing_state_t s;
@@ -143,17 +176,8 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     shell_pid=find_process("SceShellUI");
     if(shell_pid<=0){s.rc=-20;if(out)*out=s;return s.rc;}
 
-    gen_pin_addr=resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayGeneratePinCode");
-    notify_pin_addr=resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayNotifyPinCodeError");
     calloc_addr=resolve_symbol_for_pid(shell_pid,"libSceLibcInternal.sprx","calloc");
     free_addr=resolve_symbol_for_pid(shell_pid,"libSceLibcInternal.sprx","free");
-
-    /* Keep these failures separate. On newer firmwares libSceRemoteplay may
-       not already be mapped into SceShellUI, while libc is still present.
-       The exact code tells the next build whether we need to load the SPRX
-       into ShellUI or whether the libc lookup itself changed. */
-    if(!gen_pin_addr){s.rc=-21;if(out)*out=s;return s.rc;}
-    if(!notify_pin_addr){s.rc=-22;if(out)*out=s;return s.rc;}
     if(!calloc_addr){s.rc=-23;if(out)*out=s;return s.rc;}
     if(!free_addr){s.rc=-24;if(out)*out=s;return s.rc;}
 
@@ -161,11 +185,18 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     if(rc!=0){s.rc=-30+rc;if(out)*out=s;return s.rc;}
     attached=1;
 
+    rc=ensure_remoteplay_in_shell(shell_pid,&tr,calloc_addr,free_addr);
+    if(rc!=0){s.rc=rc;goto cleanup;}
+
+    gen_pin_addr=resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayGeneratePinCode");
+    notify_pin_addr=resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayNotifyPinCodeError");
+    if(!gen_pin_addr){s.rc=-21;goto cleanup;}
+    if(!notify_pin_addr){s.rc=-22;goto cleanup;}
+
     mem=astro_rp_tracer_call(&tr,calloc_addr,1,sizeof(uint32_t),0,0,0,0);
     if(mem==0||mem==(uintptr_t)-1){s.rc=-40;goto cleanup;}
 
     astro_rp_tracer_call(&tr,notify_pin_addr,1,0,0,0,0,0);
-
     call_rc=astro_rp_tracer_call(&tr,gen_pin_addr,mem,0,0,0,0,0);
     if(call_rc==(uintptr_t)-1||call_rc!=0){s.rc=-41;goto cleanup;}
 
