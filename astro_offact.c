@@ -4,7 +4,6 @@
 
 #include "astro_offact.h"
 
-int sceUserServiceInitialize(void *);
 int sceUserServiceGetForegroundUser(int *);
 int sceRegMgrGetInt(int, int *);
 int sceRegMgrGetStr(int, char *, size_t);
@@ -37,9 +36,14 @@ static uint64_t gen_account_id(const char *name)
 static int find_foreground_slot(int *user_out,int *slot_out)
 {
     int user=0,rc;
-    (void)sceUserServiceInitialize(NULL);
+
+    /* LinkDev/OffAct read the foreground user directly. Re-initializing
+       UserService from the resident worker on every browser poll can block
+       the status request, so deliberately do not call
+       sceUserServiceInitialize() here. */
     rc=sceUserServiceGetForegroundUser(&user);
     if(rc!=0)return -10;
+
     for(int i=1;i<=16;i++){
         int uid=0;
         rc=sceRegMgrGetInt(key_user_id(i),&uid);
@@ -49,8 +53,12 @@ static int find_foreground_slot(int *user_out,int *slot_out)
             return 0;
         }
     }
-    if(user_out)*user_out=user;
     return -11;
+}
+
+static void terminate_text(char *s,size_t n)
+{
+    if(s&&n)s[n-1]='\0';
 }
 
 int astro_account_get_current(astro_account_state_t *out)
@@ -61,35 +69,26 @@ int astro_account_get_current(astro_account_state_t *out)
     s.rc=-1;
 
     rc=find_foreground_slot(&user,&slot);
-    s.foreground_user=user;
     if(rc!=0){s.rc=rc;if(out)*out=s;return rc;}
+    s.foreground_user=user;
     s.registry_index=slot;
 
-    memset(s.account_name,0,sizeof(s.account_name));
-    rc=sceRegMgrGetStr(key_name(slot),s.account_name,sizeof(s.account_name)-1);
-    s.account_name[sizeof(s.account_name)-1]='\0';
+    rc=sceRegMgrGetStr(key_name(slot),s.account_name,sizeof(s.account_name));
+    terminate_text(s.account_name,sizeof(s.account_name));
     if(rc!=0){s.rc=-12;if(out)*out=s;return s.rc;}
 
     rc=sceRegMgrGetBin(key_account_id(slot),&s.account_id,sizeof(s.account_id));
     if(rc!=0){s.rc=-13;if(out)*out=s;return s.rc;}
 
-    memset(s.account_type,0,sizeof(s.account_type));
-    rc=sceRegMgrGetStr(key_type(slot),s.account_type,sizeof(s.account_type)-1);
-    s.account_type[sizeof(s.account_type)-1]='\0';
-    if(rc!=0){
-        /* An offline local account can have no useful account-type string yet.
-           Keep the field empty and continue: account ID + flags still tell us
-           whether fake activation is required. */
-        s.account_type[0]='\0';
-    }
+    /* Fresh offline users may have type/flags unset. Keep the useful
+       foreground user/name/account-id data instead of discarding the whole
+       account state when those optional fields are absent. */
+    rc=sceRegMgrGetStr(key_type(slot),s.account_type,sizeof(s.account_type));
+    terminate_text(s.account_type,sizeof(s.account_type));
+    if(rc!=0)s.account_type[0]='\0';
 
     rc=sceRegMgrGetInt(key_flags(slot),&s.account_flags);
-    if(rc!=0){
-        /* Same rule as OffAct's activation path: a missing/unreadable flags
-           value is treated as zero before activation rather than hiding the
-           whole foreground account from the UI. */
-        s.account_flags=0;
-    }
+    if(rc!=0)s.account_flags=0;
 
     s.proposed_account_id=s.account_id?s.account_id:gen_account_id(s.account_name);
     s.activated=(s.account_id!=0 && strcmp(s.account_type,"np")==0 && (s.account_flags&4098)==4098);
@@ -107,6 +106,8 @@ int astro_account_fake_activate_current(astro_account_state_t *out)
     uint64_t id;
     if(rc!=0){if(out)*out=s;return rc;}
 
+    /* Never select a slot supplied by the caller. We only mutate the slot
+       resolved from the currently foreground user. */
     id=s.account_id?s.account_id:s.proposed_account_id;
     if(!id){s.rc=-20;if(out)*out=s;return s.rc;}
 
