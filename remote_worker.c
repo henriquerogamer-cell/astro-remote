@@ -18,7 +18,9 @@
 static volatile sig_atomic_t g_worker_running=1;
 static int g_session_active=0;
 static astro_remote_ps5_source_probe_t g_probe;
+static astro_remote_ps5_protocol_probe_t g_protocol;
 static int g_probe_rc=-999;
+static int g_protocol_rc=-999;
 static char g_phase[48]="idle";
 
 static void worker_signal(int sig)
@@ -46,9 +48,27 @@ static int run_safe_probe(void)
   return g_probe_rc;
 }
 
+static int run_protocol_probe(void)
+{
+  memset(&g_protocol,0,sizeof(g_protocol));
+  set_phase("probing_remoteplay_protocol");
+  g_protocol_rc=astro_remote_ps5_protocol_probe(&g_protocol);
+
+  if(g_protocol_rc!=0)set_phase("remoteplay_protocol_probe_failed");
+  else if(g_protocol.http_status==200&&g_protocol.nonce_present)
+    set_phase("remoteplay_session_init_ready");
+  else if(g_protocol.http_status>=400)
+    set_phase("remoteplay_pairing_required");
+  else
+    set_phase("remoteplay_protocol_detected");
+  return g_protocol_rc;
+}
+
 static void stop_session(void)
 {
   g_session_active=0;
+  memset(&g_protocol,0,sizeof(g_protocol));
+  g_protocol_rc=-999;
   set_phase("idle");
 }
 
@@ -83,17 +103,33 @@ static void send_html(int fd,const char *body)
 
 static void send_status(int fd)
 {
-  char j[896];
+  char j[1400];
+  int protocol_ready=(g_protocol_rc==0);
+  int session_authenticated=(protocol_ready&&g_protocol.http_status==200&&g_protocol.nonce_present);
+  int pairing_required=(protocol_ready&&!session_authenticated);
+
   snprintf(j,sizeof(j),
     "{\"ok\":true,\"service\":\"astrorem\",\"pid\":%d,\"port\":%d,"
     "\"bind\":\"127.0.0.1\",\"session_active\":%s,\"phase\":\"%s\","
     "\"source_probe_rc\":%d,\"remoteplay_enabled\":%s,"
-    "\"remoteplay_tcp_9295\":%s,\"video_ready\":false,"
+    "\"remoteplay_tcp_9295\":%s,\"protocol_probe_rc\":%d,"
+    "\"protocol_ready\":%s,\"session_authenticated\":%s,"
+    "\"pairing_required\":%s,\"rp_http_status\":%d,"
+    "\"rp_nonce_present\":%s,\"rp_application_reason\":%u,"
+    "\"rp_version\":\"%s\",\"video_ready\":false,"
     "\"control_ready\":false}",
     (int)getpid(),ASTRO_REMOTE_WORKER_PORT,
     g_session_active?"true":"false",g_phase,g_probe_rc,
     g_probe.remoteplay_enabled?"true":"false",
-    g_probe.tcp_9295_open?"true":"false");
+    g_probe.tcp_9295_open?"true":"false",
+    g_protocol_rc,
+    protocol_ready?"true":"false",
+    session_authenticated?"true":"false",
+    pairing_required?"true":"false",
+    g_protocol.http_status,
+    g_protocol.nonce_present?"true":"false",
+    (unsigned int)g_protocol.application_reason,
+    g_protocol.rp_version);
   send_json(fd,"200 OK",j);
 }
 
@@ -119,7 +155,8 @@ int astro_remote_worker_main(void)
   if(bind(server,(struct sockaddr *)&a,sizeof(a))<0){close(server);return 11;}
   if(listen(server,4)<0){close(server);return 12;}
 
-  /* Populate Remote Play state immediately, but keep the worker idle. */
+  memset(&g_protocol,0,sizeof(g_protocol));
+  g_protocol_rc=-999;
   run_safe_probe();
   set_phase("idle");
 
@@ -157,12 +194,15 @@ int astro_remote_worker_main(void)
           send_status(c);
         else if(strstr(buf,"POST /session/start ")){
           int pr=run_safe_probe();
-          if(pr==-20||pr==-30){
+          if(pr==-20||pr==-30||pr==-40){
             g_session_active=0;
+            g_protocol_rc=-999;
+            memset(&g_protocol,0,sizeof(g_protocol));
           }else{
-            /* The actual Remote Play protocol handshake is the next stage.
-               For now the worker remains the owner of the requested session. */
+            /* Keep the supervisor session alive while the worker performs a
+               safe HTTP-level protocol preflight. No native blocking APIs. */
             g_session_active=1;
+            run_protocol_probe();
           }
           send_status(c);
         }
@@ -172,6 +212,10 @@ int astro_remote_worker_main(void)
         }
         else if(strstr(buf,"POST /probe ")){
           run_safe_probe();
+          send_status(c);
+        }
+        else if(strstr(buf,"POST /protocol/probe ")){
+          if(run_safe_probe()==0)run_protocol_probe();
           send_status(c);
         }
         else if(strstr(buf,"POST /remoteplay/enable ")){
