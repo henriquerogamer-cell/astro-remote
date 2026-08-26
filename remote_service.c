@@ -21,6 +21,7 @@
 
 #define WORKER_CONNECT_TIMEOUT_MS 200
 #define WORKER_IO_TIMEOUT_MS 300
+#define WORKER_START_TIMEOUT_MS 2000
 
 static astro_remote_state_t g_remote;
 static pid_t g_worker_pid=-1;
@@ -117,20 +118,32 @@ static int worker_port_open(void)
   return 1;
 }
 
-static int worker_healthcheck(void)
+static int worker_request(const char *method,const char *path,char *out,size_t out_sz)
 {
   int fd,n;
-  char buf[512];
-  const char *req="GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+  char req[512];
 
+  if(out&&out_sz)out[0]='\0';
   fd=connect_local_timeout(ASTRO_REMOTE_WORKER_PORT,WORKER_CONNECT_TIMEOUT_MS);
-  if(fd<0)return 0;
-  if(send(fd,req,strlen(req),0)<=0){close(fd);return 0;}
-  memset(buf,0,sizeof(buf));
-  n=recv(fd,buf,sizeof(buf)-1,0);
+  if(fd<0)return -1;
+
+  snprintf(req,sizeof(req),
+    "%s %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+    method,path);
+  if(send(fd,req,strlen(req),0)<=0){close(fd);return -2;}
+
+  if(!out||out_sz<2){close(fd);return 0;}
+  n=recv(fd,out,out_sz-1,0);
   close(fd);
-  if(n<=0)return 0;
-  buf[n]='\0';
+  if(n<=0)return -3;
+  out[n]='\0';
+  return 0;
+}
+
+static int worker_healthcheck(void)
+{
+  char buf[512];
+  if(worker_request("GET","/health",buf,sizeof(buf))!=0)return 0;
   return strstr(buf,"\"ok\":true")!=NULL&&strstr(buf,"astrorem")!=NULL;
 }
 
@@ -169,25 +182,18 @@ static void json_string(const char *j,const char *key,char *out,size_t out_sz)
   memcpy(out,s,n);out[n]='\0';
 }
 
-static int fetch_worker_status(void)
+static int apply_worker_status(const char *buf)
 {
-  int fd,n;
-  char buf[2048];
   char phase[48];
-  const char *req="GET /status HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+  int was_active=g_remote.session_active;
 
-  fd=connect_local_timeout(ASTRO_REMOTE_WORKER_PORT,WORKER_CONNECT_TIMEOUT_MS);
-  if(fd<0)return -1;
-  if(send(fd,req,strlen(req),0)<=0){close(fd);return -1;}
-  memset(buf,0,sizeof(buf));
-  n=recv(fd,buf,sizeof(buf)-1,0);
-  close(fd);
-  if(n<=0)return -1;
-  buf[n]='\0';
+  if(!buf||!strstr(buf,"\"service\":\"astrorem\""))return -1;
 
   phase[0]='\0';
   json_string(buf,"phase",phase,sizeof(phase));
   if(phase[0])set_phase(phase);
+
+  g_remote.session_active=json_bool(buf,"session_active");
   g_remote.source_probe_rc=json_int(buf,"source_probe_rc",g_remote.source_probe_rc);
   g_remote.remoteplay_enabled=json_bool(buf,"remoteplay_enabled");
   g_remote.remoteplay_tcp_9295=json_bool(buf,"remoteplay_tcp_9295");
@@ -196,7 +202,19 @@ static int fetch_worker_status(void)
   g_remote.source_available=(g_remote.source_probe_rc==0);
   g_remote.remoteplay_initialized=0;
   g_remote.source_probed_at=time(NULL);
+
+  if(g_remote.session_active&&!was_active&&g_remote.session_started_at==0)
+    g_remote.session_started_at=time(NULL);
+  if(!g_remote.session_active)g_remote.session_started_at=0;
   return 0;
+}
+
+static int fetch_worker_status(void)
+{
+  char buf[2048];
+  int rc=worker_request("GET","/status",buf,sizeof(buf));
+  if(rc!=0)return rc;
+  return apply_worker_status(buf);
 }
 
 static void mark_worker_reaped(int status,const char *phase)
@@ -239,48 +257,16 @@ static int wait_worker_exit_ms(int timeout_ms,const char *phase)
   return 0;
 }
 
-static int graceful_worker_shutdown(void)
-{
-  int fd;
-  char buf[256];
-  const char *req="POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-  fd=connect_local_timeout(ASTRO_REMOTE_WORKER_PORT,WORKER_CONNECT_TIMEOUT_MS);
-  if(fd<0)return -1;
-  if(send(fd,req,strlen(req),0)<=0){close(fd);return -1;}
-  recv(fd,buf,sizeof(buf),0);
-  close(fd);
-  return 0;
-}
-
-void astro_remote_service_init(void)
-{
-  memset(&g_remote,0,sizeof(g_remote));
-  g_worker_pid=-1;
-  g_remote.worker_port=ASTRO_REMOTE_WORKER_PORT;
-  g_remote.last_change_at=time(NULL);
-  set_phase("idle");
-}
-
-int astro_remote_service_start(void)
+static int spawn_worker(void)
 {
   pid_t pid;
-  int i;
-
-  reap_nonblocking("remote_worker_exited");
-  if(g_worker_pid>0){
-    g_remote.worker_port_open=worker_port_open();
-    if(worker_healthcheck()){
-      g_remote.service_online=1;
-      g_remote.session_active=1;
-      fetch_worker_status();
-      return 0;
-    }
-    if(astro_remote_service_stop()<0)return -4;
-  }
+  int elapsed=0;
 
   g_remote.worker_start_errno=0;
   g_remote.worker_exit_status=0;
   g_remote.worker_stuck=0;
+  g_remote.session_active=0;
+  g_remote.session_started_at=0;
   clear_worker_diag();
   set_phase("starting_remote_worker");
 
@@ -295,9 +281,8 @@ int astro_remote_service_start(void)
   if(pid==0){
     int rc;
     int fd;
-    /* Child must never keep Astro's public 45821 listener or the current
-       browser connection alive. Start with a clean fd table and open only
-       the localhost 45822 listener. */
+    /* The child must not retain Astro's public 45821 listener nor the
+       browser socket that caused its creation. It opens only 127.0.0.1:45822. */
     for(fd=3;fd<1024;fd++)close(fd);
     rc=astro_remote_worker_main();
     _exit(rc);
@@ -305,14 +290,11 @@ int astro_remote_service_start(void)
 
   g_worker_pid=pid;
   g_remote.worker_pid=(int)pid;
-  g_remote.session_active=1;
-  g_remote.service_online=0;
   g_remote.worker_port_open=0;
-  g_remote.generation++;
-  g_remote.session_started_at=time(NULL);
-  g_remote.last_change_at=g_remote.session_started_at;
+  g_remote.service_online=0;
+  g_remote.last_change_at=time(NULL);
 
-  for(i=0;i<20;i++){
+  while(elapsed<=WORKER_START_TIMEOUT_MS){
     if(reap_nonblocking("remote_worker_exited"))return -3;
     g_remote.worker_port_open=worker_port_open();
     if(g_remote.worker_port_open&&worker_healthcheck()){
@@ -323,67 +305,185 @@ int astro_remote_service_start(void)
       return 1;
     }
     usleep(100000);
+    elapsed+=100;
   }
 
   g_remote.worker_port_open=worker_port_open();
-  g_remote.service_online=0;
-  set_phase(g_remote.worker_port_open?"remote_worker_unresponsive":"remote_worker_start_timeout");
   read_worker_diag(g_worker_pid);
+  set_phase(g_remote.worker_port_open?"remote_worker_unresponsive":"remote_worker_start_timeout");
   g_remote.last_change_at=time(NULL);
   return -4;
 }
 
-int astro_remote_service_stop(void)
+void astro_remote_service_init(void)
+{
+  memset(&g_remote,0,sizeof(g_remote));
+  g_worker_pid=-1;
+  g_remote.worker_port=ASTRO_REMOTE_WORKER_PORT;
+  g_remote.source_probe_rc=-999;
+  g_remote.last_change_at=time(NULL);
+  set_phase("idle");
+}
+
+int astro_remote_service_shutdown_worker(void)
 {
   pid_t pid;
+  char buf[256];
 
-  reap_nonblocking("idle");
+  reap_nonblocking("worker_offline");
   if(g_worker_pid<=0){
-    g_remote.session_active=0;
     g_remote.service_online=0;
+    g_remote.session_active=0;
     g_remote.worker_port_open=0;
     g_remote.worker_stuck=0;
-    set_phase("idle");
+    g_remote.session_started_at=0;
+    set_phase("worker_offline");
     return 0;
   }
 
   pid=g_worker_pid;
   set_phase("stopping_remote_worker");
-  graceful_worker_shutdown();
-  if(wait_worker_exit_ms(700,"idle"))return 1;
+  worker_request("POST","/shutdown",buf,sizeof(buf));
+  if(wait_worker_exit_ms(700,"worker_offline"))return 1;
 
   kill(pid,SIGTERM);
-  if(wait_worker_exit_ms(700,"idle"))return 1;
+  if(wait_worker_exit_ms(700,"worker_offline"))return 1;
 
   kill(pid,SIGCONT);
   usleep(100000);
   kill(pid,SIGKILL);
-  if(wait_worker_exit_ms(1500,"idle"))return 1;
+  if(wait_worker_exit_ms(1500,"worker_offline"))return 1;
 
   g_remote.worker_stuck=1;
   g_remote.worker_pid=(int)pid;
   g_remote.worker_port_open=worker_port_open();
   g_remote.service_online=worker_healthcheck();
-  g_remote.session_active=1;
   read_worker_diag(pid);
   set_phase("remote_worker_stuck");
   g_remote.last_change_at=time(NULL);
   return -2;
 }
 
+int astro_remote_service_ensure_worker(void)
+{
+  int kill_rc;
+
+  reap_nonblocking("worker_offline");
+  if(g_worker_pid>0){
+    g_remote.worker_port_open=worker_port_open();
+    if(g_remote.worker_port_open&&worker_healthcheck()){
+      g_remote.service_online=1;
+      g_remote.worker_stuck=0;
+      fetch_worker_status();
+      read_worker_diag(g_worker_pid);
+      return 0;
+    }
+
+    read_worker_diag(g_worker_pid);
+    set_phase(g_remote.worker_port_open?"remote_worker_unresponsive":"remote_worker_unreachable");
+    kill_rc=astro_remote_service_shutdown_worker();
+    if(kill_rc<0)return kill_rc;
+  }
+
+  return spawn_worker();
+}
+
+int astro_remote_service_start(void)
+{
+  char buf[2048];
+  int rc=astro_remote_service_ensure_worker();
+  if(rc<0)return rc;
+
+  if(g_remote.session_active)return 0;
+
+  g_remote.generation++;
+  g_remote.session_started_at=time(NULL);
+  set_phase("starting_remote_session");
+  g_remote.last_change_at=time(NULL);
+
+  rc=worker_request("POST","/session/start",buf,sizeof(buf));
+  if(rc!=0){
+    g_remote.worker_port_open=worker_port_open();
+    g_remote.service_online=worker_healthcheck();
+    read_worker_diag(g_worker_pid);
+    set_phase(g_remote.worker_port_open?"remote_worker_unresponsive":"remote_worker_unreachable");
+    g_remote.session_started_at=0;
+    return -5;
+  }
+
+  if(apply_worker_status(buf)!=0||!g_remote.session_active){
+    g_remote.session_started_at=0;
+    return -6;
+  }
+
+  g_remote.service_online=1;
+  g_remote.last_change_at=time(NULL);
+  return 1;
+}
+
+int astro_remote_service_stop(void)
+{
+  char buf[2048];
+  int rc;
+
+  reap_nonblocking("worker_offline");
+  if(g_worker_pid<=0){
+    g_remote.session_active=0;
+    g_remote.session_started_at=0;
+    return astro_remote_service_ensure_worker();
+  }
+
+  if(!worker_healthcheck()){
+    read_worker_diag(g_worker_pid);
+    set_phase("remote_worker_unresponsive");
+    rc=astro_remote_service_shutdown_worker();
+    if(rc<0)return rc;
+    rc=astro_remote_service_ensure_worker();
+    if(rc<0)return rc;
+    set_phase("idle");
+    return 1;
+  }
+
+  if(!g_remote.session_active){
+    fetch_worker_status();
+    return 0;
+  }
+
+  set_phase("stopping_remote_session");
+  rc=worker_request("POST","/session/stop",buf,sizeof(buf));
+  if(rc==0&&apply_worker_status(buf)==0&&!g_remote.session_active){
+    g_remote.service_online=1;
+    g_remote.session_started_at=0;
+    g_remote.last_change_at=time(NULL);
+    return 1;
+  }
+
+  /* A session stop that hangs is treated as a worker fault. Kill only
+     astrorem, reap it, and immediately restore a fresh idle worker. */
+  read_worker_diag(g_worker_pid);
+  set_phase("remote_worker_unresponsive");
+  rc=astro_remote_service_shutdown_worker();
+  if(rc<0)return rc;
+  rc=astro_remote_service_ensure_worker();
+  if(rc<0)return rc;
+  set_phase("idle");
+  return 1;
+}
+
 void astro_remote_service_snapshot(astro_remote_state_t *out)
 {
-  reap_nonblocking("remote_worker_exited");
+  reap_nonblocking("worker_offline");
   if(g_worker_pid>0){
     int healthy;
     g_remote.worker_pid=(int)g_worker_pid;
     g_remote.worker_port_open=worker_port_open();
     healthy=g_remote.worker_port_open?worker_healthcheck():0;
     g_remote.service_online=healthy;
-    g_remote.session_active=1;
     read_worker_diag(g_worker_pid);
+
     if(healthy){
-      if(fetch_worker_status()!=0&&!g_remote.worker_stuck)set_phase("remote_worker_status_timeout");
+      if(fetch_worker_status()!=0&&!g_remote.worker_stuck)
+        set_phase("remote_worker_status_timeout");
     }else if(!g_remote.worker_stuck){
       set_phase(g_remote.worker_port_open?"remote_worker_unresponsive":"remote_worker_unreachable");
     }
