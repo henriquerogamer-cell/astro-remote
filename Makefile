@@ -25,8 +25,8 @@ main_v12_embed.c: main_v12.c
 main_v13_embed.c: main_v13.c main_v12_embed.c
 	sed 's/^int main(void)$$/int astro_v13_legacy_main(void)/' main_v13.c > $@
 
-$(ELF): main_v132.c main_v13_embed.c main_v12_embed.c main_v03.c astro_process_name.c
-	$(CC) $(CFLAGS) -o $@ main_v132.c astro_process_name.c
+$(ELF): main_v135.c main_v132.c main_v13_embed.c main_v12_embed.c main_v03.c astro_process_name.c
+	$(CC) $(CFLAGS) -o $@ main_v135.c astro_process_name.c
 
 clean:
 	rm -f $(ELF) main_v12_embed.c main_v13_embed.c
