@@ -13,5 +13,6 @@ typedef struct astro_remote_ps5_source_probe {
 } astro_remote_ps5_source_probe_t;
 
 int astro_remote_ps5_source_probe(astro_remote_ps5_source_probe_t *out);
+int astro_remote_ps5_source_enable_remoteplay(void);
 
 #endif
