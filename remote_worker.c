@@ -5,10 +5,13 @@
 #include <signal.h>
 #include <stdint.h>
 #include <time.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -31,6 +34,15 @@ static int g_account_rc=-999;
 static int g_reboot_required=0;
 static char g_phase[48]="idle";
 
+/* Temporary account probe terminal. The probe runs in a child so a blocking
+   PS5 API call cannot freeze the web worker. */
+static pid_t g_account_probe_pid=-1;
+static int g_account_log_fd=-1;
+static char g_account_log[8192];
+static size_t g_account_log_len=0;
+static int g_account_probe_done=0;
+static int g_account_probe_exit=0;
+
 static void worker_signal(int sig){(void)sig;g_worker_running=0;}
 static void set_phase(const char *phase){snprintf(g_phase,sizeof(g_phase),"%s",phase?phase:"unknown");}
 
@@ -44,11 +56,88 @@ static void json_safe_copy(char *dst,size_t dst_size,const char *src)
     if(c=='"'||c=='\\'){
       if(j+2>=dst_size)break;
       dst[j++]='\\';dst[j++]=(char)c;
+    }else if(c=='\n'){
+      if(j+2>=dst_size)break;
+      dst[j++]='\\';dst[j++]='n';
+    }else if(c=='\r'){
+      if(j+2>=dst_size)break;
+      dst[j++]='\\';dst[j++]='r';
     }else if(c>=0x20&&c<0x7f){
       dst[j++]=(char)c;
     }else dst[j++]='?';
   }
   dst[j]='\0';
+}
+
+static void account_log_append(const char *buf,size_t n)
+{
+  if(!buf||!n)return;
+  if(n>=sizeof(g_account_log)-1){buf+=n-(sizeof(g_account_log)-1);n=sizeof(g_account_log)-1;g_account_log_len=0;}
+  if(g_account_log_len+n>=sizeof(g_account_log)){
+    size_t drop=g_account_log_len+n-(sizeof(g_account_log)-1);
+    memmove(g_account_log,g_account_log+drop,g_account_log_len-drop);
+    g_account_log_len-=drop;
+  }
+  memcpy(g_account_log+g_account_log_len,buf,n);
+  g_account_log_len+=n;
+  g_account_log[g_account_log_len]='\0';
+}
+
+static void poll_account_probe(void)
+{
+  if(g_account_log_fd>=0){
+    for(;;){
+      char b[512];ssize_t n=read(g_account_log_fd,b,sizeof(b));
+      if(n>0){account_log_append(b,(size_t)n);continue;}
+      if(n<0&&(errno==EAGAIN||errno==EWOULDBLOCK))break;
+      if(n==0){close(g_account_log_fd);g_account_log_fd=-1;}
+      break;
+    }
+  }
+  if(g_account_probe_pid>0){
+    int st=0;pid_t r=waitpid(g_account_probe_pid,&st,WNOHANG);
+    if(r==g_account_probe_pid){
+      char b[96];
+      g_account_probe_done=1;g_account_probe_exit=st;g_account_probe_pid=-1;
+      snprintf(b,sizeof(b),"[probe] child exited status=%d\n",st);account_log_append(b,strlen(b));
+    }
+  }
+}
+
+static int start_account_probe(void)
+{
+  int p[2];pid_t pid;
+  poll_account_probe();
+  if(g_account_probe_pid>0)return 0;
+  if(g_account_log_fd>=0){close(g_account_log_fd);g_account_log_fd=-1;}
+  g_account_log_len=0;g_account_log[0]='\0';g_account_probe_done=0;g_account_probe_exit=0;
+  account_log_append("[probe] starting isolated account probe\n",39);
+  if(pipe(p)!=0){account_log_append("[probe] pipe() failed\n",22);return -1;}
+  pid=fork();
+  if(pid<0){close(p[0]);close(p[1]);account_log_append("[probe] fork() failed\n",22);return -2;}
+  if(pid==0){
+    astro_account_state_t s;int rc;
+    close(p[0]);
+    astro_account_set_debug_fd(p[1]);
+    rc=astro_account_get_current(&s);
+    dprintf(p[1],"[probe] RESULT rc=%d user=%d slot=%d name='%s' account=0x%016llx type='%s' flags=%d activated=%d\n",
+      rc,s.foreground_user,s.registry_index,s.account_name,(unsigned long long)s.account_id,s.account_type,s.account_flags,s.activated);
+    close(p[1]);
+    _exit(rc==0?0:100+(-rc));
+  }
+  close(p[1]);g_account_log_fd=p[0];g_account_probe_pid=pid;
+  fcntl(g_account_log_fd,F_SETFL,fcntl(g_account_log_fd,F_GETFL,0)|O_NONBLOCK);
+  return 1;
+}
+
+static void send_account_debug(int fd)
+{
+  char safe[16384],j[18000];
+  poll_account_probe();
+  json_safe_copy(safe,sizeof(safe),g_account_log);
+  snprintf(j,sizeof(j),"{\"ok\":true,\"running\":%s,\"done\":%s,\"pid\":%d,\"exit_status\":%d,\"log\":\"%s\"}",
+    g_account_probe_pid>0?"true":"false",g_account_probe_done?"true":"false",(int)g_account_probe_pid,g_account_probe_exit,safe);
+  send_json(fd,"200 OK",j);
 }
 
 static int refresh_account(void)
@@ -169,7 +258,7 @@ static void send_status(int fd)
   time_t now=time(NULL);
   int pin_ready=(g_pairing.pin_ready&&g_pairing.expires_at>now);
   long seconds_left=pin_ready?(long)(g_pairing.expires_at-now):0;
-  refresh_pairing();
+  refresh_pairing();poll_account_probe();
   snprintf(j,sizeof(j),
     "{\"ok\":true,\"service\":\"astrorem\",\"pid\":%d,\"port\":%d,\"bind\":\"127.0.0.1\",\"session_active\":%s,\"phase\":\"%s\","
     "\"source_probe_rc\":%d,\"remoteplay_enabled\":%s,\"remoteplay_tcp_9295\":%s,\"protocol_probe_rc\":%d,\"protocol_ready\":%s,"
@@ -198,8 +287,8 @@ int astro_remote_worker_main(void)
   g_protocol_rc=-999;g_pairing_rc=-999;g_account_rc=-999;run_safe_probe();set_phase("idle");
 
   while(g_worker_running){
-    fd_set rfds;struct timeval tv;int rc;FD_ZERO(&rfds);FD_SET(server,&rfds);tv.tv_sec=0;tv.tv_usec=500000;
-    rc=select(server+1,&rfds,NULL,NULL,&tv);if(rc<0){if(!g_worker_running)break;continue;}if(rc==0){refresh_pairing();continue;}
+    fd_set rfds;struct timeval tv;int rc;FD_ZERO(&rfds);FD_SET(server,&rfds);tv.tv_sec=0;tv.tv_usec=250000;
+    rc=select(server+1,&rfds,NULL,NULL,&tv);poll_account_probe();if(rc<0){if(!g_worker_running)break;continue;}if(rc==0){refresh_pairing();continue;}
     if(FD_ISSET(server,&rfds)){
       int c=accept(server,NULL,NULL);char buf[2048];int n;if(c<0)continue;memset(buf,0,sizeof(buf));n=recv(c,buf,sizeof(buf)-1,0);
       if(n>0){
@@ -207,6 +296,8 @@ int astro_remote_worker_main(void)
         if(strstr(buf,"GET / "))send_html(c,remote_page_v137);
         else if(strstr(buf,"GET /health "))send_json(c,"200 OK","{\"ok\":true,\"service\":\"astrorem\"}");
         else if(strstr(buf,"GET /status "))send_status(c);
+        else if(strstr(buf,"GET /account/debug "))send_account_debug(c);
+        else if(strstr(buf,"POST /account/debug/start ")){start_account_probe();send_account_debug(c);}
         else if(strstr(buf,"GET /account/status "))send_account_status(c,1);
         else if(strstr(buf,"POST /account/refresh ")){set_phase("reading_foreground_account");send_account_status(c,1);set_phase(g_account_rc==0?(g_account.activated?"account_activated":"account_activation_required"):"account_detection_failed");}
         else if(strstr(buf,"POST /account/activate ")){int arc=activate_foreground_account();if(arc==0)send_account_status(c,0);else{char x[192];snprintf(x,sizeof(x),"{\"ok\":false,\"error\":\"account_activation_failed\",\"rc\":%d}",arc);send_json(c,"500 Internal Server Error",x);}}
@@ -223,5 +314,7 @@ int astro_remote_worker_main(void)
       close(c);
     }
   }
+  if(g_account_probe_pid>0)kill(g_account_probe_pid,SIGKILL);
+  if(g_account_log_fd>=0)close(g_account_log_fd);
   close(server);return 0;
 }
