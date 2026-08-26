@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdint.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -19,6 +20,7 @@
 #include "remote_worker.h"
 
 #define WORKER_CONNECT_TIMEOUT_MS 200
+#define WORKER_IO_TIMEOUT_MS 300
 
 static astro_remote_state_t g_remote;
 static pid_t g_worker_pid=-1;
@@ -26,6 +28,15 @@ static pid_t g_worker_pid=-1;
 static void set_phase(const char *phase)
 {
   snprintf(g_remote.phase,sizeof(g_remote.phase),"%s",phase?phase:"unknown");
+}
+
+static void set_socket_timeout(int fd,int timeout_ms)
+{
+  struct timeval tv;
+  tv.tv_sec=timeout_ms/1000;
+  tv.tv_usec=(timeout_ms%1000)*1000;
+  setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+  setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
 }
 
 static void clear_worker_diag(void)
@@ -94,6 +105,7 @@ static int connect_local_timeout(int port,int timeout_ms)
   }
 
   fcntl(fd,F_SETFL,flags);
+  set_socket_timeout(fd,WORKER_IO_TIMEOUT_MS);
   return fd;
 }
 
@@ -103,6 +115,23 @@ static int worker_port_open(void)
   if(fd<0)return 0;
   close(fd);
   return 1;
+}
+
+static int worker_healthcheck(void)
+{
+  int fd,n;
+  char buf[512];
+  const char *req="GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+
+  fd=connect_local_timeout(ASTRO_REMOTE_WORKER_PORT,WORKER_CONNECT_TIMEOUT_MS);
+  if(fd<0)return 0;
+  if(send(fd,req,strlen(req),0)<=0){close(fd);return 0;}
+  memset(buf,0,sizeof(buf));
+  n=recv(fd,buf,sizeof(buf)-1,0);
+  close(fd);
+  if(n<=0)return 0;
+  buf[n]='\0';
+  return strstr(buf,"\"ok\":true")!=NULL&&strstr(buf,"astrorem")!=NULL;
 }
 
 static int json_bool(const char *j,const char *key)
@@ -149,7 +178,7 @@ static int fetch_worker_status(void)
 
   fd=connect_local_timeout(ASTRO_REMOTE_WORKER_PORT,WORKER_CONNECT_TIMEOUT_MS);
   if(fd<0)return -1;
-  send(fd,req,strlen(req),0);
+  if(send(fd,req,strlen(req),0)<=0){close(fd);return -1;}
   memset(buf,0,sizeof(buf));
   n=recv(fd,buf,sizeof(buf)-1,0);
   close(fd);
@@ -217,7 +246,7 @@ static int graceful_worker_shutdown(void)
   const char *req="POST /shutdown HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
   fd=connect_local_timeout(ASTRO_REMOTE_WORKER_PORT,WORKER_CONNECT_TIMEOUT_MS);
   if(fd<0)return -1;
-  send(fd,req,strlen(req),0);
+  if(send(fd,req,strlen(req),0)<=0){close(fd);return -1;}
   recv(fd,buf,sizeof(buf),0);
   close(fd);
   return 0;
@@ -240,7 +269,7 @@ int astro_remote_service_start(void)
   reap_nonblocking("remote_worker_exited");
   if(g_worker_pid>0){
     g_remote.worker_port_open=worker_port_open();
-    if(g_remote.worker_port_open){
+    if(worker_healthcheck()){
       g_remote.service_online=1;
       g_remote.session_active=1;
       fetch_worker_status();
@@ -266,9 +295,9 @@ int astro_remote_service_start(void)
   if(pid==0){
     int rc;
     int fd;
-    /* The child must never keep Astro's public 45821 listener or the
-       current browser connection alive. It starts with a clean fd table
-       and opens only its localhost 45822 listener. */
+    /* Child must never keep Astro's public 45821 listener or the current
+       browser connection alive. Start with a clean fd table and open only
+       the localhost 45822 listener. */
     for(fd=3;fd<1024;fd++)close(fd);
     rc=astro_remote_worker_main();
     _exit(rc);
@@ -285,8 +314,8 @@ int astro_remote_service_start(void)
 
   for(i=0;i<20;i++){
     if(reap_nonblocking("remote_worker_exited"))return -3;
-    if(worker_port_open()){
-      g_remote.worker_port_open=1;
+    g_remote.worker_port_open=worker_port_open();
+    if(g_remote.worker_port_open&&worker_healthcheck()){
       g_remote.service_online=1;
       fetch_worker_status();
       read_worker_diag(g_worker_pid);
@@ -296,7 +325,9 @@ int astro_remote_service_start(void)
     usleep(100000);
   }
 
-  set_phase("remote_worker_start_timeout");
+  g_remote.worker_port_open=worker_port_open();
+  g_remote.service_online=0;
+  set_phase(g_remote.worker_port_open?"remote_worker_unresponsive":"remote_worker_start_timeout");
   read_worker_diag(g_worker_pid);
   g_remote.last_change_at=time(NULL);
   return -4;
@@ -332,7 +363,7 @@ int astro_remote_service_stop(void)
   g_remote.worker_stuck=1;
   g_remote.worker_pid=(int)pid;
   g_remote.worker_port_open=worker_port_open();
-  g_remote.service_online=g_remote.worker_port_open;
+  g_remote.service_online=worker_healthcheck();
   g_remote.session_active=1;
   read_worker_diag(pid);
   set_phase("remote_worker_stuck");
@@ -344,13 +375,18 @@ void astro_remote_service_snapshot(astro_remote_state_t *out)
 {
   reap_nonblocking("remote_worker_exited");
   if(g_worker_pid>0){
+    int healthy;
     g_remote.worker_pid=(int)g_worker_pid;
     g_remote.worker_port_open=worker_port_open();
-    g_remote.service_online=g_remote.worker_port_open;
+    healthy=g_remote.worker_port_open?worker_healthcheck():0;
+    g_remote.service_online=healthy;
     g_remote.session_active=1;
     read_worker_diag(g_worker_pid);
-    if(g_remote.worker_port_open)fetch_worker_status();
-    else if(!g_remote.worker_stuck)set_phase("remote_worker_unreachable");
+    if(healthy){
+      if(fetch_worker_status()!=0&&!g_remote.worker_stuck)set_phase("remote_worker_status_timeout");
+    }else if(!g_remote.worker_stuck){
+      set_phase(g_remote.worker_port_open?"remote_worker_unresponsive":"remote_worker_unreachable");
+    }
   }
   if(out)*out=g_remote;
 }
