@@ -1,6 +1,7 @@
 #define main astro_v136_legacy_main
 #include "main_v136.c"
 #undef main
+#include "remote_page_v137.h"
 
 static void send_remote_status_v137(int fd)
 {
@@ -57,6 +58,27 @@ static void send_remote_action_v137(int fd,int start)
   send_remote_status_v137(fd);
 }
 
+static void send_remote_restart_v137(int fd)
+{
+  int rc=astro_remote_service_shutdown_worker();
+  if(rc>=0)rc=astro_remote_service_ensure_worker();
+  if(rc<0){
+    astro_remote_state_t s;
+    char j[512];
+    astro_remote_service_snapshot(&s);
+    snprintf(j,sizeof(j),
+      "{\"ok\":false,\"error\":\"remote_worker_restart_failed\","
+      "\"rc\":%d,\"phase\":\"%s\",\"worker_pid\":%d,"
+      "\"worker_stuck\":%s,\"worker_stat\":%d,"
+      "\"worker_wmesg\":\"%s\",\"worker_lockname\":\"%s\"}",
+      rc,s.phase,s.worker_pid,s.worker_stuck?"true":"false",s.worker_stat,
+      s.worker_wmesg,s.worker_lockname);
+    send_json(fd,"503 Service Unavailable",j);
+    return;
+  }
+  send_remote_status_v137(fd);
+}
+
 int main(void)
 {
   int server,client,opt=1;
@@ -79,7 +101,7 @@ int main(void)
   a.sin_port=htons(ASTRO_PORT);
   if(bind(server,(struct sockaddr*)&a,sizeof(a))<0){close(server);return 1;}
   if(listen(server,8)<0){close(server);return 1;}
-  notify("ASTRO Remote v0.15.0 split service - 45821 + localhost 45822");
+  notify("ASTRO Remote v0.15.1 - 45821 supervisor + localhost 45822");
 
   /* Start the isolated Remote worker immediately. The public Astro listener
      stays on 45821; astrorem owns only 127.0.0.1:45822 and starts idle. */
@@ -120,7 +142,7 @@ int main(void)
 
     if(!strcmp(path,"/favicon.ico")){send_no_content_v132(client);close(client);continue;}
     if((!strcmp(path,"/logout")||!strncmp(path,"/logout?",8))&&logged(buf)){send_logout_v13(client);close(client);continue;}
-    if((!strcmp(path,"/remote")||!strcmp(path,"/screen")||!strncmp(path,"/remote?",8)||!strncmp(path,"/screen?",8))&&logged(buf)){send_response(client,"200 OK","Cache-Control: no-store\r\n",remote_page_v136);close(client);continue;}
+    if((!strcmp(path,"/remote")||!strcmp(path,"/screen")||!strncmp(path,"/remote?",8)||!strncmp(path,"/screen?",8))&&logged(buf)){send_response(client,"200 OK","Cache-Control: no-store\r\n",remote_page_v137);close(client);continue;}
 
     svc=service_from_path(path,&backend);
     if(svc&&logged(buf)){
@@ -145,6 +167,7 @@ int main(void)
     else if(strstr(buf,"GET /api/remote/status ")&&logged(buf))send_remote_status_v137(client);
     else if(strstr(buf,"POST /api/remote/start ")&&logged(buf))send_remote_action_v137(client,1);
     else if(strstr(buf,"POST /api/remote/stop ")&&logged(buf))send_remote_action_v137(client,0);
+    else if(strstr(buf,"POST /api/remote/restart ")&&logged(buf))send_remote_restart_v137(client);
     else if(strstr(buf,"POST /admin/shutdown ")&&logged(buf)){
       astro_remote_service_shutdown_worker();
       send_response(client,"200 OK",NULL,shutdown_page);
