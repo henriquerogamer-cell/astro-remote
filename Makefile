@@ -16,6 +16,7 @@ endif
 
 ELF := astro_remote.elf
 CFLAGS := -Wall -Werror -g
+LDADD := -lSceRegMgr -lSceRemoteplay
 
 all: $(ELF)
 
@@ -28,8 +29,8 @@ main_v13_embed.c: main_v13.c main_v12_embed.c
 main_v132_embed.c: main_v132.c main_v13_embed.c
 	sed 's/^int main(void)$$/int astro_v132_legacy_main(void)/' main_v132.c > $@
 
-$(ELF): main_v136.c remote_service.c remote_service.h main_v132_embed.c main_v13_embed.c main_v12_embed.c main_v03.c astro_process_name.c
-	$(CC) $(CFLAGS) -o $@ main_v136.c remote_service.c astro_process_name.c
+$(ELF): main_v136.c remote_service.c remote_service.h remote_ps5_source.c remote_ps5_source.h main_v132_embed.c main_v13_embed.c main_v12_embed.c main_v03.c astro_process_name.c
+	$(CC) $(CFLAGS) -o $@ main_v136.c remote_service.c remote_ps5_source.c astro_process_name.c $(LDADD)
 
 clean:
 	rm -f $(ELF) main_v12_embed.c main_v13_embed.c main_v132_embed.c
