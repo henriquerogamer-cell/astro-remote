@@ -115,11 +115,28 @@ static int current_user_and_account(int *user_out,int *idx_out,uint8_t account_i
     return 0;
 }
 
-/* Load libSceRemoteplay inside SceShellUI itself. Loading it in astrorem
-   would only map the module into the worker process, which does not help
-   when we later call Sony's function through the ShellUI tracer. */
-static int ensure_remoteplay_in_shell(pid_t shell_pid,astro_rp_tracer_t *tr,
-                                      uintptr_t calloc_addr,uintptr_t free_addr)
+static int write_remote_scratch(pid_t pid,astro_rp_tracer_t *tr,
+    const void *data,size_t size,uintptr_t *addr_out,uint8_t *backup)
+{
+    uintptr_t addr=0;
+    int rc=astro_rp_tracer_stack_scratch(tr,size,&addr);
+    if(rc!=0)return -1;
+    if(mdbg_copyout(pid,addr,backup,size)!=0)return -2;
+    if(mdbg_copyin(pid,data,addr,size)!=0)return -3;
+    *addr_out=addr;
+    return 0;
+}
+
+static void restore_remote_scratch(pid_t pid,uintptr_t addr,
+    const uint8_t *backup,size_t size)
+{
+    if(addr&&backup)mdbg_copyin(pid,backup,addr,size);
+}
+
+/* Load libSceRemoteplay inside SceShellUI. We deliberately use temporary
+   stack scratch rather than calloc/free so this path does not depend on
+   the firmware-specific name/export layout of ShellUI's libc. */
+static int ensure_remoteplay_in_shell(pid_t shell_pid,astro_rp_tracer_t *tr)
 {
     static const char *paths[]={
         "/system/common/lib/libSceRemoteplay.sprx",
@@ -138,14 +155,15 @@ static int ensure_remoteplay_in_shell(pid_t shell_pid,astro_rp_tracer_t *tr,
 
     for(size_t i=0;i<sizeof(paths)/sizeof(paths[0]);i++){
         size_t len=strlen(paths[i])+1;
-        uintptr_t remote_path=astro_rp_tracer_call(tr,calloc_addr,1,len,0,0,0,0);
-        if(remote_path==0||remote_path==(uintptr_t)-1)continue;
+        uintptr_t remote_path=0;
+        uint8_t backup[128];
+        if(len>sizeof(backup))continue;
+        memset(backup,0,sizeof(backup));
+        if(write_remote_scratch(shell_pid,tr,paths[i],len,&remote_path,backup)!=0)
+            continue;
 
-        if(mdbg_copyin(shell_pid,paths[i],remote_path,len)==0){
-            uintptr_t load_rc=astro_rp_tracer_call(tr,load_addr,remote_path,0,0,0,0,0);
-            (void)load_rc;
-        }
-        astro_rp_tracer_call(tr,free_addr,remote_path,0,0,0,0,0);
+        (void)astro_rp_tracer_call(tr,load_addr,remote_path,0,0,0,0,0);
+        restore_remote_scratch(shell_pid,remote_path,backup,len);
 
         if(resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayGeneratePinCode"))
             return 0;
@@ -158,11 +176,14 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     astro_remote_pairing_state_t s;
     uint8_t account_id[8];
     int shell_pid;
-    uintptr_t gen_pin_addr,notify_pin_addr,calloc_addr,free_addr;
+    uintptr_t gen_pin_addr,notify_pin_addr;
     astro_rp_tracer_t tr;
     uintptr_t mem=0;
     uintptr_t call_rc;
     uint32_t pin=0;
+    uint32_t zero=0;
+    uint8_t scratch_backup[sizeof(uint32_t)]={0};
+    int scratch_saved=0;
     int attached=0;
     int rc;
 
@@ -176,16 +197,11 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     shell_pid=find_process("SceShellUI");
     if(shell_pid<=0){s.rc=-20;if(out)*out=s;return s.rc;}
 
-    calloc_addr=resolve_symbol_for_pid(shell_pid,"libSceLibcInternal.sprx","calloc");
-    free_addr=resolve_symbol_for_pid(shell_pid,"libSceLibcInternal.sprx","free");
-    if(!calloc_addr){s.rc=-23;if(out)*out=s;return s.rc;}
-    if(!free_addr){s.rc=-24;if(out)*out=s;return s.rc;}
-
     rc=astro_rp_tracer_init(&tr,shell_pid);
     if(rc!=0){s.rc=-30+rc;if(out)*out=s;return s.rc;}
     attached=1;
 
-    rc=ensure_remoteplay_in_shell(shell_pid,&tr,calloc_addr,free_addr);
+    rc=ensure_remoteplay_in_shell(shell_pid,&tr);
     if(rc!=0){s.rc=rc;goto cleanup;}
 
     gen_pin_addr=resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayGeneratePinCode");
@@ -193,10 +209,11 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     if(!gen_pin_addr){s.rc=-21;goto cleanup;}
     if(!notify_pin_addr){s.rc=-22;goto cleanup;}
 
-    mem=astro_rp_tracer_call(&tr,calloc_addr,1,sizeof(uint32_t),0,0,0,0);
-    if(mem==0||mem==(uintptr_t)-1){s.rc=-40;goto cleanup;}
+    rc=write_remote_scratch(shell_pid,&tr,&zero,sizeof(zero),&mem,scratch_backup);
+    if(rc!=0){s.rc=-40;goto cleanup;}
+    scratch_saved=1;
 
-    astro_rp_tracer_call(&tr,notify_pin_addr,1,0,0,0,0,0);
+    (void)astro_rp_tracer_call(&tr,notify_pin_addr,1,0,0,0,0,0);
     call_rc=astro_rp_tracer_call(&tr,gen_pin_addr,mem,0,0,0,0,0);
     if(call_rc==(uintptr_t)-1||call_rc!=0){s.rc=-41;goto cleanup;}
 
@@ -210,8 +227,7 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     s.rc=0;
 
 cleanup:
-    if(mem&&mem!=(uintptr_t)-1)
-        astro_rp_tracer_call(&tr,free_addr,mem,0,0,0,0,0);
+    if(scratch_saved)restore_remote_scratch(shell_pid,mem,scratch_backup,sizeof(scratch_backup));
     if(attached)astro_rp_tracer_finalize(&tr);
     if(out)*out=s;
     return s.rc;
