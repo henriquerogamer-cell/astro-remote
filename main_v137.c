@@ -79,6 +79,71 @@ static void send_remote_restart_v137(int fd)
   send_remote_status_v137(fd);
 }
 
+/* The Remote worker is managed by Astro, not discovered from Prospero's
+   .elf list. Add it to the same service catalogue explicitly so the UI and
+   proxy treat it exactly like every other internal web service. */
+static void send_api_services_v137(int fd)
+{
+  char pr[ASTRO_HTTP_BUF],json[24576],names[64][128];
+  size_t used=0;
+  int visible=0,i,pc=0;
+  int ok=http_get_local_v134(PROSPERO_PORT,"/api/processes",pr,sizeof(pr))==0;
+
+  used+=(size_t)snprintf(json+used,sizeof(json)-used,
+    "{\"ok\":true,\"manager_online\":%s,\"source\":\"ProsperoMgr + Astro managed services\",\"items\":[",
+    ok?"true":"false");
+
+  if(ok){
+    pc=extract_processes(pr,names,64);
+    for(i=0;i<pc;i++){
+      astro_service_t *s=by_process(names[i]);
+      if(is_hidden(names[i]))continue;
+      if(!strcasecmp(names[i],"payload.elf"))continue;
+      if(!strcasecmp(names[i],"astrorem"))continue;
+
+      if(s&&s->port>0){
+        int active=tcp_open(s->port);
+        used+=(size_t)snprintf(json+used,sizeof(json)-used,
+          "%s{\"id\":\"%s\",\"name\":\"%s\",\"process\":\"%s\",\"port\":%d,\"known\":true,\"active\":%s,\"url\":\"/service/%s/\"}",
+          visible?",":"",s->id,s->name,s->process,s->port,active?"true":"false",s->id);
+        visible++;
+      }else if(!s){
+        char id[48];
+        slugify(names[i],id,sizeof(id));
+        used+=(size_t)snprintf(json+used,sizeof(json)-used,
+          "%s{\"id\":\"%s\",\"name\":\"Novo serviço detectado\",\"process\":\"%s\",\"port\":0,\"known\":false,\"active\":true}",
+          visible?",":"",id,names[i]);
+        visible++;
+      }
+    }
+  }
+
+  {
+    astro_service_t *r=by_process("astrorem");
+    if(r&&!is_hidden("astrorem")){
+      int active=tcp_open(r->port);
+      used+=(size_t)snprintf(json+used,sizeof(json)-used,
+        "%s{\"id\":\"%s\",\"name\":\"%s\",\"process\":\"%s\",\"port\":%d,\"known\":true,\"active\":%s,\"managed\":true,\"url\":\"/service/%s/\"}",
+        visible?",":"",r->id,r->name,r->process,r->port,active?"true":"false",r->id);
+      visible++;
+    }
+  }
+
+  used+=(size_t)snprintf(json+used,sizeof(json)-used,
+    "],\"count\":%d,\"hidden\":[",visible);
+  for(i=0;i<hidden_count;i++)
+    used+=(size_t)snprintf(json+used,sizeof(json)-used,
+      "%s{\"process\":\"%s\"}",i?",":"",hidden[i]);
+  snprintf(json+used,sizeof(json)-used,
+    "],\"hidden_count\":%d}",hidden_count);
+  send_json(fd,"200 OK",json);
+}
+
+static void redirect_remote_service_v137(int fd)
+{
+  send_response(fd,"302 Found","Location: /service/remote/\r\nCache-Control: no-store\r\n","");
+}
+
 int main(void)
 {
   int server,client,opt=1;
@@ -88,6 +153,8 @@ int main(void)
   running=1;
   astro_started_at=time(NULL);
   load_registry();
+  /* Fixed internal service. Only Astro is externally reachable on 45821. */
+  add_service("remote","Astro Remote","astrorem",45822);
   load_hidden();
   astro_remote_service_init();
   signal(SIGPIPE,SIG_IGN);
@@ -101,10 +168,8 @@ int main(void)
   a.sin_port=htons(ASTRO_PORT);
   if(bind(server,(struct sockaddr*)&a,sizeof(a))<0){close(server);return 1;}
   if(listen(server,8)<0){close(server);return 1;}
-  notify("ASTRO Remote v0.15.1 - 45821 supervisor + localhost 45822");
+  notify("ASTRO Remote v0.15.2 - Remote via internal service proxy");
 
-  /* Start the isolated Remote worker immediately. The public Astro listener
-     stays on 45821; astrorem owns only 127.0.0.1:45822 and starts idle. */
   astro_remote_service_ensure_worker();
 
   while(running){
@@ -142,7 +207,12 @@ int main(void)
 
     if(!strcmp(path,"/favicon.ico")){send_no_content_v132(client);close(client);continue;}
     if((!strcmp(path,"/logout")||!strncmp(path,"/logout?",8))&&logged(buf)){send_logout_v13(client);close(client);continue;}
-    if((!strcmp(path,"/remote")||!strcmp(path,"/screen")||!strncmp(path,"/remote?",8)||!strncmp(path,"/screen?",8))&&logged(buf)){send_response(client,"200 OK","Cache-Control: no-store\r\n",remote_page_v137);close(client);continue;}
+
+    /* Legacy friendly aliases now enter the normal Astro service proxy.
+       No standalone /remote page is served by the supervisor anymore. */
+    if((!strcmp(path,"/remote")||!strcmp(path,"/screen")||!strncmp(path,"/remote?",8)||!strncmp(path,"/screen?",8))&&logged(buf)){
+      redirect_remote_service_v137(client);close(client);continue;
+    }
 
     svc=service_from_path(path,&backend);
     if(svc&&logged(buf)){
@@ -159,7 +229,7 @@ int main(void)
 
     if(strstr(buf,"POST /login ")&&valid_login(buf))send_response(client,"302 Found","Set-Cookie: astro_session=logged_in; Path=/; HttpOnly\r\nLocation: /\r\n","");
     else if(strstr(buf,"GET /api/status ")&&logged(buf))send_status_v13(client);
-    else if(strstr(buf,"GET /api/services ")&&logged(buf))send_api_services_v134(client);
+    else if(strstr(buf,"GET /api/services ")&&logged(buf))send_api_services_v137(client);
     else if(strstr(buf,"POST /api/services/register ")&&logged(buf))send_register(client,buf);
     else if(strstr(buf,"POST /api/services/update ")&&logged(buf))send_update_service_v13(client,buf);
     else if(strstr(buf,"POST /api/services/hide ")&&logged(buf))send_hide(client,buf,0);
