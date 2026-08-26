@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdint.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -13,14 +14,17 @@
 
 #include "remote_worker.h"
 #include "remote_ps5_source.h"
+#include "remote_pairing.h"
 #include "remote_page_v137.h"
 
 static volatile sig_atomic_t g_worker_running=1;
 static int g_session_active=0;
 static astro_remote_ps5_source_probe_t g_probe;
 static astro_remote_ps5_protocol_probe_t g_protocol;
+static astro_remote_pairing_state_t g_pairing;
 static int g_probe_rc=-999;
 static int g_protocol_rc=-999;
+static int g_pairing_rc=-999;
 static char g_phase[48]="idle";
 
 static void worker_signal(int sig)
@@ -64,6 +68,30 @@ static int run_protocol_probe(void)
   return g_protocol_rc;
 }
 
+static int prepare_automatic_pairing(void)
+{
+  int pr;
+  memset(&g_pairing,0,sizeof(g_pairing));
+  g_pairing_rc=-999;
+
+  pr=run_safe_probe();
+  if(pr!=0){
+    g_pairing_rc=pr;
+    set_phase("pairing_source_unavailable");
+    return pr;
+  }
+
+  set_phase("preparing_automatic_pairing");
+  g_pairing_rc=astro_remote_pairing_prepare(&g_pairing);
+  if(g_pairing_rc==0&&g_pairing.pin_ready){
+    g_session_active=1;
+    set_phase("pairing_pin_ready");
+  }else{
+    set_phase("pairing_prepare_failed");
+  }
+  return g_pairing_rc;
+}
+
 static void stop_session(void)
 {
   g_session_active=0;
@@ -103,10 +131,13 @@ static void send_html(int fd,const char *body)
 
 static void send_status(int fd)
 {
-  char j[1400];
+  char j[1800];
   int protocol_ready=(g_protocol_rc==0);
   int session_authenticated=(protocol_ready&&g_protocol.http_status==200&&g_protocol.nonce_present);
   int pairing_required=(protocol_ready&&!session_authenticated);
+  time_t now=time(NULL);
+  int pairing_pin_ready=(g_pairing.pin_ready&&g_pairing.expires_at>now);
+  long pairing_seconds_left=pairing_pin_ready?(long)(g_pairing.expires_at-now):0;
 
   snprintf(j,sizeof(j),
     "{\"ok\":true,\"service\":\"astrorem\",\"pid\":%d,\"port\":%d,"
@@ -116,7 +147,10 @@ static void send_status(int fd)
     "\"protocol_ready\":%s,\"session_authenticated\":%s,"
     "\"pairing_required\":%s,\"rp_http_status\":%d,"
     "\"rp_nonce_present\":%s,\"rp_application_reason\":%u,"
-    "\"rp_version\":\"%s\",\"video_ready\":false,"
+    "\"rp_version\":\"%s\",\"pairing_prepare_rc\":%d,"
+    "\"pairing_pin_ready\":%s,\"pairing_seconds_left\":%ld,"
+    "\"pairing_user\":%d,\"pairing_registry_index\":%d,"
+    "\"pairing_account_id_ready\":%s,\"video_ready\":false,"
     "\"control_ready\":false}",
     (int)getpid(),ASTRO_REMOTE_WORKER_PORT,
     g_session_active?"true":"false",g_phase,g_probe_rc,
@@ -129,7 +163,13 @@ static void send_status(int fd)
     g_protocol.http_status,
     g_protocol.nonce_present?"true":"false",
     (unsigned int)g_protocol.application_reason,
-    g_protocol.rp_version);
+    g_protocol.rp_version,
+    g_pairing_rc,
+    pairing_pin_ready?"true":"false",
+    pairing_seconds_left,
+    g_pairing.foreground_user,
+    g_pairing.registry_index,
+    g_pairing.account_id_b64[0]?"true":"false");
   send_json(fd,"200 OK",j);
 }
 
@@ -156,7 +196,9 @@ int astro_remote_worker_main(void)
   if(listen(server,4)<0){close(server);return 12;}
 
   memset(&g_protocol,0,sizeof(g_protocol));
+  memset(&g_pairing,0,sizeof(g_pairing));
   g_protocol_rc=-999;
+  g_pairing_rc=-999;
   run_safe_probe();
   set_phase("idle");
 
@@ -199,8 +241,6 @@ int astro_remote_worker_main(void)
             g_protocol_rc=-999;
             memset(&g_protocol,0,sizeof(g_protocol));
           }else{
-            /* Keep the supervisor session alive while the worker performs a
-               safe HTTP-level protocol preflight. No native blocking APIs. */
             g_session_active=1;
             run_protocol_probe();
           }
@@ -216,6 +256,10 @@ int astro_remote_worker_main(void)
         }
         else if(strstr(buf,"POST /protocol/probe ")){
           if(run_safe_probe()==0)run_protocol_probe();
+          send_status(c);
+        }
+        else if(strstr(buf,"POST /pairing/prepare ")){
+          prepare_automatic_pairing();
           send_status(c);
         }
         else if(strstr(buf,"POST /remoteplay/enable ")){
