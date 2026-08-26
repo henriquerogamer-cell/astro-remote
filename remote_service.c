@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 #include "remote_service.h"
 
