@@ -20,7 +20,7 @@
 #include "remote_worker.h"
 
 #define WORKER_CONNECT_TIMEOUT_MS 200
-#define WORKER_IO_TIMEOUT_MS 300
+#define WORKER_IO_TIMEOUT_MS 750
 #define WORKER_START_TIMEOUT_MS 2000
 
 static astro_remote_state_t g_remote;
@@ -120,8 +120,9 @@ static int worker_port_open(void)
 
 static int worker_request(const char *method,const char *path,char *out,size_t out_sz)
 {
-  int fd,n;
+  int fd;
   char req[512];
+  size_t used=0;
 
   if(out&&out_sz)out[0]='\0';
   fd=connect_local_timeout(ASTRO_REMOTE_WORKER_PORT,WORKER_CONNECT_TIMEOUT_MS);
@@ -133,16 +134,26 @@ static int worker_request(const char *method,const char *path,char *out,size_t o
   if(send(fd,req,strlen(req),0)<=0){close(fd);return -2;}
 
   if(!out||out_sz<2){close(fd);return 0;}
-  n=recv(fd,out,out_sz-1,0);
+
+  while(used+1<out_sz){
+    ssize_t n=recv(fd,out+used,out_sz-used-1,0);
+    if(n>0){used+=(size_t)n;continue;}
+    if(n==0)break;
+    if(errno==EINTR)continue;
+    if((errno==EAGAIN||errno==EWOULDBLOCK)&&used>0)break;
+    close(fd);
+    return used?0:-3;
+  }
+
   close(fd);
-  if(n<=0)return -3;
-  out[n]='\0';
+  if(!used)return -3;
+  out[used]='\0';
   return 0;
 }
 
 static int worker_healthcheck(void)
 {
-  char buf[512];
+  char buf[1024];
   if(worker_request("GET","/health",buf,sizeof(buf))!=0)return 0;
   return strstr(buf,"\"ok\":true")!=NULL&&strstr(buf,"astrorem")!=NULL;
 }
@@ -281,8 +292,6 @@ static int spawn_worker(void)
   if(pid==0){
     int rc;
     int fd;
-    /* The child must not retain Astro's public 45821 listener nor the
-       browser socket that caused its creation. It opens only 127.0.0.1:45822. */
     for(fd=3;fd<1024;fd++)close(fd);
     rc=astro_remote_worker_main();
     _exit(rc);
@@ -458,8 +467,6 @@ int astro_remote_service_stop(void)
     return 1;
   }
 
-  /* A session stop that hangs is treated as a worker fault. Kill only
-     astrorem, reap it, and immediately restore a fresh idle worker. */
   read_worker_diag(g_worker_pid);
   set_phase("remote_worker_unresponsive");
   rc=astro_remote_service_shutdown_worker();
@@ -468,6 +475,20 @@ int astro_remote_service_stop(void)
   if(rc<0)return rc;
   set_phase("idle");
   return 1;
+}
+
+int astro_remote_service_enable_remoteplay(void)
+{
+  char buf[2048];
+  int rc=astro_remote_service_ensure_worker();
+  if(rc<0)return rc;
+
+  rc=worker_request("POST","/remoteplay/enable",buf,sizeof(buf));
+  if(rc!=0)return -7;
+  if(apply_worker_status(buf)!=0)return -8;
+  g_remote.service_online=1;
+  g_remote.last_change_at=time(NULL);
+  return g_remote.remoteplay_enabled?1:-9;
 }
 
 void astro_remote_service_snapshot(astro_remote_state_t *out)
