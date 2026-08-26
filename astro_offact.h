@@ -18,6 +18,7 @@ typedef struct astro_account_state {
     char account_type[ASTRO_ACCOUNT_TYPE_MAX];
 } astro_account_state_t;
 
+void astro_account_set_debug_fd(int fd);
 int astro_account_get_current(astro_account_state_t *out);
 int astro_account_fake_activate_current(astro_account_state_t *out);
 
