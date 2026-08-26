@@ -46,9 +46,7 @@ static void json_safe_copy(char *dst,size_t dst_size,const char *src)
       dst[j++]='\\';dst[j++]=(char)c;
     }else if(c>=0x20&&c<0x7f){
       dst[j++]=(char)c;
-    }else{
-      dst[j++]='?';
-    }
+    }else dst[j++]='?';
   }
   dst[j]='\0';
 }
@@ -87,9 +85,8 @@ static int run_protocol_probe(void)
 
 static int activate_foreground_account(void)
 {
-  int rc;
-  refresh_account();
-  if(g_account_rc!=0){set_phase("account_detection_failed");return g_account_rc;}
+  int rc=refresh_account();
+  if(rc!=0){set_phase("account_detection_failed");return rc;}
   if(g_account.activated){g_reboot_required=0;set_phase("account_already_activated");return 0;}
   set_phase("activating_foreground_account");
   rc=astro_account_fake_activate_current(&g_account);
@@ -102,20 +99,15 @@ static int activate_foreground_account(void)
 static int prepare_linkdev_pairing(void)
 {
   int rc;
-  memset(&g_pairing,0,sizeof(g_pairing));
-  g_pairing_rc=-999;
-
-  refresh_account();
-  if(g_account_rc!=0){g_pairing_rc=g_account_rc;set_phase("account_detection_failed");return g_pairing_rc;}
+  memset(&g_pairing,0,sizeof(g_pairing));g_pairing_rc=-999;
+  rc=refresh_account();
+  if(rc!=0){g_pairing_rc=rc;set_phase("account_detection_failed");return rc;}
   if(!g_account.activated){g_pairing_rc=-60;set_phase("account_activation_required");return g_pairing_rc;}
   if(g_reboot_required){g_pairing_rc=-61;set_phase("reboot_required");return g_pairing_rc;}
-
   set_phase("enabling_remoteplay_offline");
   rc=astro_remote_ps5_source_enable_remoteplay();
   if(rc!=0){g_pairing_rc=rc;set_phase("remoteplay_enable_failed");return rc;}
-
-  run_safe_probe();
-  set_phase("generating_linkdev_pin");
+  run_safe_probe();set_phase("generating_linkdev_pin");
   g_pairing_rc=astro_remote_pairing_prepare(&g_pairing);
   if(g_pairing_rc==0&&g_pairing.pin_ready)set_phase("linkdev_pin_ready");
   else set_phase("linkdev_pairing_failed");
@@ -124,10 +116,8 @@ static int prepare_linkdev_pairing(void)
 
 static void refresh_pairing(void)
 {
-  int rc;
-  if(!g_pairing.pairing_active)return;
-  rc=astro_remote_pairing_poll(&g_pairing);
-  g_pairing_rc=g_pairing.rc;
+  int rc;if(!g_pairing.pairing_active)return;
+  rc=astro_remote_pairing_poll(&g_pairing);g_pairing_rc=g_pairing.rc;
   if(rc==1){set_phase("linkdev_pairing_complete");g_session_active=1;}
   else if(rc==-30)set_phase("linkdev_pairing_timeout");
   else if(rc==-32)set_phase("linkdev_pairing_rejected");
@@ -136,11 +126,8 @@ static void refresh_pairing(void)
 
 static void stop_session(void)
 {
-  g_session_active=0;
-  astro_remote_pairing_cancel(&g_pairing);
-  memset(&g_protocol,0,sizeof(g_protocol));
-  g_protocol_rc=-999;
-  set_phase("idle");
+  g_session_active=0;astro_remote_pairing_cancel(&g_pairing);
+  memset(&g_protocol,0,sizeof(g_protocol));g_protocol_rc=-999;set_phase("idle");
 }
 
 static void send_json(int fd,const char *status,const char *body)
@@ -157,35 +144,42 @@ static void send_html(int fd,const char *body)
   send(fd,h,strlen(h),0);send(fd,body,n,0);
 }
 
+static void send_account_status(int fd,int do_refresh)
+{
+  char j[1024],safe_name[96],safe_type[64];
+  if(do_refresh)refresh_account();
+  json_safe_copy(safe_name,sizeof(safe_name),g_account.account_name);
+  json_safe_copy(safe_type,sizeof(safe_type),g_account.account_type);
+  snprintf(j,sizeof(j),
+    "{\"ok\":true,\"account_rc\":%d,\"account_name\":\"%s\",\"account_user\":%d,\"account_slot\":%d,"
+    "\"account_id_hex\":\"0x%016llx\",\"account_proposed_id_hex\":\"0x%016llx\",\"account_type\":\"%s\","
+    "\"account_flags\":%d,\"account_activated\":%s,\"reboot_required\":%s}",
+    g_account_rc,safe_name,g_account.foreground_user,g_account.registry_index,
+    (unsigned long long)g_account.account_id,(unsigned long long)g_account.proposed_account_id,safe_type,
+    g_account.account_flags,g_account.activated?"true":"false",g_reboot_required?"true":"false");
+  send_json(fd,"200 OK",j);
+}
+
 static void send_status(int fd)
 {
-  char j[4096],safe_name[96],safe_type[64];
+  char j[2600];
   int protocol_ready=(g_protocol_rc==0);
   int session_authenticated=(protocol_ready&&g_protocol.http_status==200&&g_protocol.nonce_present);
   int pairing_required=(protocol_ready&&!session_authenticated);
   time_t now=time(NULL);
   int pin_ready=(g_pairing.pin_ready&&g_pairing.expires_at>now);
   long seconds_left=pin_ready?(long)(g_pairing.expires_at-now):0;
-
   refresh_pairing();
-  refresh_account();
-  json_safe_copy(safe_name,sizeof(safe_name),g_account.account_name);
-  json_safe_copy(safe_type,sizeof(safe_type),g_account.account_type);
-
   snprintf(j,sizeof(j),
     "{\"ok\":true,\"service\":\"astrorem\",\"pid\":%d,\"port\":%d,\"bind\":\"127.0.0.1\",\"session_active\":%s,\"phase\":\"%s\","
-    "\"account_rc\":%d,\"account_name\":\"%s\",\"account_user\":%d,\"account_slot\":%d,\"account_id_hex\":\"0x%016llx\",\"account_proposed_id_hex\":\"0x%016llx\",\"account_type\":\"%s\",\"account_flags\":%d,\"account_activated\":%s,\"reboot_required\":%s,"
     "\"source_probe_rc\":%d,\"remoteplay_enabled\":%s,\"remoteplay_tcp_9295\":%s,\"protocol_probe_rc\":%d,\"protocol_ready\":%s,"
     "\"session_authenticated\":%s,\"pairing_required\":%s,\"rp_http_status\":%d,\"rp_nonce_present\":%s,\"rp_application_reason\":%u,"
     "\"rp_version\":\"%s\",\"pairing_prepare_rc\":%d,\"pairing_pin_ready\":%s,\"pairing_pin\":%u,\"pairing_seconds_left\":%ld,"
     "\"pairing_active\":%s,\"pairing_complete\":%s,\"pairing_stat\":%d,\"pairing_error\":%d,"
     "\"pairing_user\":%d,\"pairing_registry_index\":%d,\"pairing_account_id_ready\":%s,\"pairing_account_id\":\"%s\","
     "\"registration_persisted\":false,\"video_ready\":false,\"control_ready\":false}",
-    (int)getpid(),ASTRO_REMOTE_WORKER_PORT,g_session_active?"true":"false",g_phase,
-    g_account_rc,safe_name,g_account.foreground_user,g_account.registry_index,
-    (unsigned long long)g_account.account_id,(unsigned long long)g_account.proposed_account_id,safe_type,g_account.account_flags,
-    g_account.activated?"true":"false",g_reboot_required?"true":"false",
-    g_probe_rc,g_probe.remoteplay_enabled?"true":"false",g_probe.tcp_9295_open?"true":"false",g_protocol_rc,protocol_ready?"true":"false",
+    (int)getpid(),ASTRO_REMOTE_WORKER_PORT,g_session_active?"true":"false",g_phase,g_probe_rc,
+    g_probe.remoteplay_enabled?"true":"false",g_probe.tcp_9295_open?"true":"false",g_protocol_rc,protocol_ready?"true":"false",
     session_authenticated?"true":"false",pairing_required?"true":"false",g_protocol.http_status,g_protocol.nonce_present?"true":"false",
     (unsigned int)g_protocol.application_reason,g_protocol.rp_version,g_pairing_rc,pin_ready?"true":"false",g_pairing.pin,seconds_left,
     g_pairing.pairing_active?"true":"false",g_pairing.pairing_complete?"true":"false",g_pairing.pair_stat,g_pairing.pair_error,
@@ -201,7 +195,7 @@ int astro_remote_worker_main(void)
   memset(&a,0,sizeof(a));a.sin_family=AF_INET;a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);a.sin_port=htons(ASTRO_REMOTE_WORKER_PORT);
   if(bind(server,(struct sockaddr *)&a,sizeof(a))<0){close(server);return 11;}if(listen(server,4)<0){close(server);return 12;}
   memset(&g_protocol,0,sizeof(g_protocol));memset(&g_pairing,0,sizeof(g_pairing));memset(&g_account,0,sizeof(g_account));
-  g_protocol_rc=-999;g_pairing_rc=-999;refresh_account();run_safe_probe();set_phase("idle");
+  g_protocol_rc=-999;g_pairing_rc=-999;g_account_rc=-999;run_safe_probe();set_phase("idle");
 
   while(g_worker_running){
     fd_set rfds;struct timeval tv;int rc;FD_ZERO(&rfds);FD_SET(server,&rfds);tv.tv_sec=0;tv.tv_usec=500000;
@@ -213,11 +207,9 @@ int astro_remote_worker_main(void)
         if(strstr(buf,"GET / "))send_html(c,remote_page_v137);
         else if(strstr(buf,"GET /health "))send_json(c,"200 OK","{\"ok\":true,\"service\":\"astrorem\"}");
         else if(strstr(buf,"GET /status "))send_status(c);
-        else if(strstr(buf,"POST /account/refresh ")){refresh_account();set_phase(g_account_rc==0?(g_account.activated?"account_activated":"account_activation_required"):"account_detection_failed");send_status(c);}
-        else if(strstr(buf,"POST /account/activate ")){
-          int arc=activate_foreground_account();
-          if(arc==0)send_status(c);else{char x[192];snprintf(x,sizeof(x),"{\"ok\":false,\"error\":\"account_activation_failed\",\"rc\":%d}",arc);send_json(c,"500 Internal Server Error",x);}
-        }
+        else if(strstr(buf,"GET /account/status "))send_account_status(c,1);
+        else if(strstr(buf,"POST /account/refresh ")){set_phase("reading_foreground_account");send_account_status(c,1);set_phase(g_account_rc==0?(g_account.activated?"account_activated":"account_activation_required"):"account_detection_failed");}
+        else if(strstr(buf,"POST /account/activate ")){int arc=activate_foreground_account();if(arc==0)send_account_status(c,0);else{char x[192];snprintf(x,sizeof(x),"{\"ok\":false,\"error\":\"account_activation_failed\",\"rc\":%d}",arc);send_json(c,"500 Internal Server Error",x);}}
         else if(strstr(buf,"POST /session/start ")){int pr=run_safe_probe();if(pr==-20||pr==-30||pr==-40){g_session_active=0;g_protocol_rc=-999;memset(&g_protocol,0,sizeof(g_protocol));}else{g_session_active=1;run_protocol_probe();}send_status(c);}
         else if(strstr(buf,"POST /session/stop ")){stop_session();send_status(c);}
         else if(strstr(buf,"POST /probe ")){run_safe_probe();send_status(c);}
