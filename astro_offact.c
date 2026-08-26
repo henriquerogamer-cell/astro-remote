@@ -2,6 +2,9 @@
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <signal.h>
+#include <errno.h>
+#include <sys/wait.h>
 
 #include "astro_offact.h"
 
@@ -44,6 +47,70 @@ static void ensure_user_service(void)
     dbg_int("[account] <- UserService init rc=",g_user_service_init_rc);
 }
 
+/* UserService behaves reliably in a freshly forked payload process on the
+   tested PS5, while lazy initialization from the long-running web worker can
+   stall. Keep that API isolated and return only rc + foreground UID. */
+typedef struct foreground_result {
+    int rc;
+    int user;
+    int init_rc;
+} foreground_result_t;
+
+static int get_foreground_user_isolated(int *user_out)
+{
+    int p[2],status=0,elapsed=0;
+    pid_t pid;
+    foreground_result_t r;
+    ssize_t got=0;
+
+    memset(&r,0,sizeof(r));
+    r.rc=-1;
+    if(pipe(p)!=0)return -100;
+    pid=fork();
+    if(pid<0){close(p[0]);close(p[1]);return -101;}
+
+    if(pid==0){
+        foreground_result_t cr;
+        memset(&cr,0,sizeof(cr));
+        close(p[0]);
+        /* Reset inherited bookkeeping so this child always initializes its
+           own UserService context. */
+        g_user_service_init_attempted=0;
+        g_user_service_init_rc=0;
+        ensure_user_service();
+        cr.init_rc=g_user_service_init_rc;
+        cr.rc=sceUserServiceGetForegroundUser(&cr.user);
+        write(p[1],&cr,sizeof(cr));
+        close(p[1]);
+        _exit(0);
+    }
+
+    close(p[1]);
+    while(elapsed<2000){
+        pid_t w=waitpid(pid,&status,WNOHANG);
+        if(w==pid)break;
+        if(w<0&&errno!=EINTR){close(p[0]);return -102;}
+        usleep(20000);
+        elapsed+=20;
+    }
+    if(elapsed>=2000){
+        kill(pid,SIGKILL);
+        waitpid(pid,&status,0);
+        close(p[0]);
+        dbg("[account] isolated foreground lookup TIMEOUT");
+        return -103;
+    }
+
+    got=read(p[0],&r,sizeof(r));
+    close(p[0]);
+    if(got!=(ssize_t)sizeof(r))return -104;
+    dbg_int("[account] isolated UserService init rc=",r.init_rc);
+    dbg_int("[account] isolated foreground rc=",r.rc);
+    if(r.rc!=0)return r.rc;
+    if(user_out)*user_out=r.user;
+    return 0;
+}
+
 static int entity(int n,int max,int stride,int base,int fallback)
 {
     if(n<1||n>max)return fallback;
@@ -69,10 +136,9 @@ static int find_foreground_slot(int *user_out,int *slot_out)
 {
     int user=0,rc;
     dbg("[account] start find_foreground_slot");
-    ensure_user_service();
-    dbg("[account] -> sceUserServiceGetForegroundUser");
-    rc=sceUserServiceGetForegroundUser(&user);
-    dbg_int("[account] <- foreground rc=",rc);
+    dbg("[account] -> isolated foreground user lookup");
+    rc=get_foreground_user_isolated(&user);
+    dbg_int("[account] <- isolated lookup rc=",rc);
     if(rc!=0)return -10;
     dbg_int("[account] foreground user=",user);
 
