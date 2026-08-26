@@ -1,4 +1,4 @@
-name: Build Astro Split ELF
+name: Build Astro Split ELF v0.15
 
 on:
   workflow_dispatch:
