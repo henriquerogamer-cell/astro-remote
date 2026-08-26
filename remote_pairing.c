@@ -19,6 +19,8 @@ int sceRegMgrGetInt(int, int *);
 int sceRegMgrGetBin(int, void *, size_t);
 
 #define PAIRING_TTL_SECONDS 120
+#define PS5_KINFO_PID_OFFSET 72
+#define PS5_KINFO_TDNAME_OFFSET 447
 
 static uint32_t reg_num(uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e)
 {
@@ -40,7 +42,7 @@ static int find_process(const char *name)
 {
     int mib[4]={CTL_KERN,KERN_PROC,KERN_PROC_PROC,0};
     size_t sz=0;
-    void *buf=NULL;
+    uint8_t *buf=NULL;
     int found=-1;
 
     if(sysctl(mib,4,NULL,&sz,NULL,0)!=0||sz==0)return -1;
@@ -48,14 +50,23 @@ static int find_process(const char *name)
     if(!buf)return -1;
     if(sysctl(mib,4,buf,&sz,NULL,0)!=0){free(buf);return -1;}
 
-    for(char *p=(char *)buf;p<(char *)buf+sz;){
-        struct kinfo_proc *ki=(struct kinfo_proc *)p;
-        if(ki->ki_structsize==0)break;
-        p+=ki->ki_structsize;
-        if(!strcmp(ki->ki_tdname,name)){
-            found=(int)ki->ki_pid;
-            break;
+    for(uint8_t *p=buf;p<buf+sz;){
+        int struct_size=*(int *)p;
+        if(struct_size<=0||p+(size_t)struct_size>buf+sz)break;
+
+        /* The PS5 payload ecosystem uses these stable kinfo_proc offsets.
+           Using SDK struct fields here failed to locate SceShellUI on 12.60,
+           while the same raw offsets are used by rp-get-pin/ftpsrv. */
+        if(struct_size>PS5_KINFO_TDNAME_OFFSET){
+            pid_t pid=*(pid_t *)(p+PS5_KINFO_PID_OFFSET);
+            const char *tdname=(const char *)(p+PS5_KINFO_TDNAME_OFFSET);
+            if(!strcmp(tdname,name)){
+                found=(int)pid;
+                break;
+            }
         }
+
+        p+=(size_t)struct_size;
     }
     free(buf);
     return found;
