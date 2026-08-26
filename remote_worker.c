@@ -15,6 +15,7 @@
 #include "remote_worker.h"
 #include "remote_ps5_source.h"
 #include "remote_pairing.h"
+#include "astro_offact.h"
 #include "remote_page_v137.h"
 
 static volatile sig_atomic_t g_worker_running=1;
@@ -22,13 +23,23 @@ static int g_session_active=0;
 static astro_remote_ps5_source_probe_t g_probe;
 static astro_remote_ps5_protocol_probe_t g_protocol;
 static astro_remote_pairing_state_t g_pairing;
+static astro_account_state_t g_account;
 static int g_probe_rc=-999;
 static int g_protocol_rc=-999;
 static int g_pairing_rc=-999;
+static int g_account_rc=-999;
+static int g_reboot_required=0;
 static char g_phase[48]="idle";
 
 static void worker_signal(int sig){(void)sig;g_worker_running=0;}
 static void set_phase(const char *phase){snprintf(g_phase,sizeof(g_phase),"%s",phase?phase:"unknown");}
+
+static int refresh_account(void)
+{
+  memset(&g_account,0,sizeof(g_account));
+  g_account_rc=astro_account_get_current(&g_account);
+  return g_account_rc;
+}
 
 static int run_safe_probe(void)
 {
@@ -55,11 +66,30 @@ static int run_protocol_probe(void)
   return g_protocol_rc;
 }
 
+static int activate_foreground_account(void)
+{
+  int rc;
+  refresh_account();
+  if(g_account_rc!=0){set_phase("account_detection_failed");return g_account_rc;}
+  if(g_account.activated){g_reboot_required=0;set_phase("account_already_activated");return 0;}
+  set_phase("activating_foreground_account");
+  rc=astro_account_fake_activate_current(&g_account);
+  g_account_rc=rc;
+  if(rc==0){g_reboot_required=1;set_phase("account_activated_reboot_required");}
+  else set_phase("account_activation_failed");
+  return rc;
+}
+
 static int prepare_linkdev_pairing(void)
 {
   int rc;
   memset(&g_pairing,0,sizeof(g_pairing));
   g_pairing_rc=-999;
+
+  refresh_account();
+  if(g_account_rc!=0){g_pairing_rc=g_account_rc;set_phase("account_detection_failed");return g_pairing_rc;}
+  if(!g_account.activated){g_pairing_rc=-60;set_phase("account_activation_required");return g_pairing_rc;}
+  if(g_reboot_required){g_pairing_rc=-61;set_phase("reboot_required");return g_pairing_rc;}
 
   set_phase("enabling_remoteplay_offline");
   rc=astro_remote_ps5_source_enable_remoteplay();
@@ -110,7 +140,7 @@ static void send_html(int fd,const char *body)
 
 static void send_status(int fd)
 {
-  char j[2200];
+  char j[3200];
   int protocol_ready=(g_protocol_rc==0);
   int session_authenticated=(protocol_ready&&g_protocol.http_status==200&&g_protocol.nonce_present);
   int pairing_required=(protocol_ready&&!session_authenticated);
@@ -119,20 +149,26 @@ static void send_status(int fd)
   long seconds_left=pin_ready?(long)(g_pairing.expires_at-now):0;
 
   refresh_pairing();
+  refresh_account();
 
   snprintf(j,sizeof(j),
     "{\"ok\":true,\"service\":\"astrorem\",\"pid\":%d,\"port\":%d,\"bind\":\"127.0.0.1\",\"session_active\":%s,\"phase\":\"%s\","
+    "\"account_rc\":%d,\"account_name\":\"%s\",\"account_user\":%d,\"account_slot\":%d,\"account_id_hex\":\"0x%016llx\",\"account_proposed_id_hex\":\"0x%016llx\",\"account_type\":\"%s\",\"account_flags\":%d,\"account_activated\":%s,\"reboot_required\":%s,"
     "\"source_probe_rc\":%d,\"remoteplay_enabled\":%s,\"remoteplay_tcp_9295\":%s,\"protocol_probe_rc\":%d,\"protocol_ready\":%s,"
     "\"session_authenticated\":%s,\"pairing_required\":%s,\"rp_http_status\":%d,\"rp_nonce_present\":%s,\"rp_application_reason\":%u,"
     "\"rp_version\":\"%s\",\"pairing_prepare_rc\":%d,\"pairing_pin_ready\":%s,\"pairing_pin\":%u,\"pairing_seconds_left\":%ld,"
     "\"pairing_active\":%s,\"pairing_complete\":%s,\"pairing_stat\":%d,\"pairing_error\":%d,"
     "\"pairing_user\":%d,\"pairing_registry_index\":%d,\"pairing_account_id_ready\":%s,\"pairing_account_id\":\"%s\","
     "\"registration_persisted\":false,\"video_ready\":false,\"control_ready\":false}",
-    (int)getpid(),ASTRO_REMOTE_WORKER_PORT,g_session_active?"true":"false",g_phase,g_probe_rc,g_probe.remoteplay_enabled?"true":"false",
-    g_probe.tcp_9295_open?"true":"false",g_protocol_rc,protocol_ready?"true":"false",session_authenticated?"true":"false",pairing_required?"true":"false",
-    g_protocol.http_status,g_protocol.nonce_present?"true":"false",(unsigned int)g_protocol.application_reason,g_protocol.rp_version,g_pairing_rc,
-    pin_ready?"true":"false",g_pairing.pin,seconds_left,g_pairing.pairing_active?"true":"false",g_pairing.pairing_complete?"true":"false",
-    g_pairing.pair_stat,g_pairing.pair_error,g_pairing.foreground_user,g_pairing.registry_index,g_pairing.account_id_b64[0]?"true":"false",g_pairing.account_id_b64);
+    (int)getpid(),ASTRO_REMOTE_WORKER_PORT,g_session_active?"true":"false",g_phase,
+    g_account_rc,g_account.account_name,g_account.foreground_user,g_account.registry_index,
+    (unsigned long long)g_account.account_id,(unsigned long long)g_account.proposed_account_id,g_account.account_type,g_account.account_flags,
+    g_account.activated?"true":"false",g_reboot_required?"true":"false",
+    g_probe_rc,g_probe.remoteplay_enabled?"true":"false",g_probe.tcp_9295_open?"true":"false",g_protocol_rc,protocol_ready?"true":"false",
+    session_authenticated?"true":"false",pairing_required?"true":"false",g_protocol.http_status,g_protocol.nonce_present?"true":"false",
+    (unsigned int)g_protocol.application_reason,g_protocol.rp_version,g_pairing_rc,pin_ready?"true":"false",g_pairing.pin,seconds_left,
+    g_pairing.pairing_active?"true":"false",g_pairing.pairing_complete?"true":"false",g_pairing.pair_stat,g_pairing.pair_error,
+    g_pairing.foreground_user,g_pairing.registry_index,g_pairing.account_id_b64[0]?"true":"false",g_pairing.account_id_b64);
   send_json(fd,"200 OK",j);
 }
 
@@ -143,7 +179,8 @@ int astro_remote_worker_main(void)
   server=socket(AF_INET,SOCK_STREAM,0);if(server<0)return 10;setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt));
   memset(&a,0,sizeof(a));a.sin_family=AF_INET;a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);a.sin_port=htons(ASTRO_REMOTE_WORKER_PORT);
   if(bind(server,(struct sockaddr *)&a,sizeof(a))<0){close(server);return 11;}if(listen(server,4)<0){close(server);return 12;}
-  memset(&g_protocol,0,sizeof(g_protocol));memset(&g_pairing,0,sizeof(g_pairing));g_protocol_rc=-999;g_pairing_rc=-999;run_safe_probe();set_phase("idle");
+  memset(&g_protocol,0,sizeof(g_protocol));memset(&g_pairing,0,sizeof(g_pairing));memset(&g_account,0,sizeof(g_account));
+  g_protocol_rc=-999;g_pairing_rc=-999;refresh_account();run_safe_probe();set_phase("idle");
 
   while(g_worker_running){
     fd_set rfds;struct timeval tv;int rc;FD_ZERO(&rfds);FD_SET(server,&rfds);tv.tv_sec=0;tv.tv_usec=500000;
@@ -155,13 +192,18 @@ int astro_remote_worker_main(void)
         if(strstr(buf,"GET / "))send_html(c,remote_page_v137);
         else if(strstr(buf,"GET /health "))send_json(c,"200 OK","{\"ok\":true,\"service\":\"astrorem\"}");
         else if(strstr(buf,"GET /status "))send_status(c);
+        else if(strstr(buf,"POST /account/refresh ")){refresh_account();set_phase(g_account.activated?"account_activated":"account_activation_required");send_status(c);}
+        else if(strstr(buf,"POST /account/activate ")){
+          int arc=activate_foreground_account();
+          if(arc==0)send_status(c);else{char x[192];snprintf(x,sizeof(x),"{\"ok\":false,\"error\":\"account_activation_failed\",\"rc\":%d}",arc);send_json(c,"500 Internal Server Error",x);}
+        }
         else if(strstr(buf,"POST /session/start ")){int pr=run_safe_probe();if(pr==-20||pr==-30||pr==-40){g_session_active=0;g_protocol_rc=-999;memset(&g_protocol,0,sizeof(g_protocol));}else{g_session_active=1;run_protocol_probe();}send_status(c);}
         else if(strstr(buf,"POST /session/stop ")){stop_session();send_status(c);}
         else if(strstr(buf,"POST /probe ")){run_safe_probe();send_status(c);}
         else if(strstr(buf,"POST /protocol/probe ")){if(run_safe_probe()==0)run_protocol_probe();send_status(c);}
         else if(strstr(buf,"POST /pairing/prepare ")){prepare_linkdev_pairing();send_status(c);}
         else if(strstr(buf,"POST /pairing/cancel ")){astro_remote_pairing_cancel(&g_pairing);set_phase("pairing_cancelled");send_status(c);}
-        else if(strstr(buf,"POST /remoteplay/enable ")){int erc=astro_remote_ps5_source_enable_remoteplay();if(erc==0){run_safe_probe();set_phase("remoteplay_enabled");send_status(c);}else{char j[192];snprintf(j,sizeof(j),"{\"ok\":false,\"error\":\"remoteplay_enable_failed\",\"rc\":%d}",erc);send_json(c,"500 Internal Server Error",j);}}
+        else if(strstr(buf,"POST /remoteplay/enable ")){int erc=astro_remote_ps5_source_enable_remoteplay();if(erc==0){run_safe_probe();set_phase("remoteplay_enabled");send_status(c);}else{char x[192];snprintf(x,sizeof(x),"{\"ok\":false,\"error\":\"remoteplay_enable_failed\",\"rc\":%d}",erc);send_json(c,"500 Internal Server Error",x);}}
         else if(strstr(buf,"POST /shutdown ")){send_json(c,"200 OK","{\"ok\":true,\"stopping\":true}");g_worker_running=0;}
         else send_json(c,"404 Not Found","{\"ok\":false,\"error\":\"not_found\"}");
       }
