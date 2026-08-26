@@ -232,7 +232,7 @@ void astro_remote_service_init(void)
   set_phase("idle");
 }
 
-int astro_remote_service_start(int inherited_server_fd,int inherited_client_fd)
+int astro_remote_service_start(void)
 {
   pid_t pid;
   int i;
@@ -265,8 +265,11 @@ int astro_remote_service_start(int inherited_server_fd,int inherited_client_fd)
 
   if(pid==0){
     int rc;
-    if(inherited_client_fd>2)close(inherited_client_fd);
-    if(inherited_server_fd>2&&inherited_server_fd!=inherited_client_fd)close(inherited_server_fd);
+    int fd;
+    /* The child must never keep Astro's public 45821 listener or the
+       current browser connection alive. It starts with a clean fd table
+       and opens only its localhost 45822 listener. */
+    for(fd=3;fd<1024;fd++)close(fd);
     rc=astro_remote_worker_main();
     _exit(rc);
   }
