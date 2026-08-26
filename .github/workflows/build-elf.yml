@@ -54,12 +54,16 @@ jobs:
           make clean
           make
           test -s astro_remote.elf
+          test -s astrokill.elf
           file astro_remote.elf
+          file astrokill.elf
 
-      - name: Upload ELF
+      - name: Upload ELFs
         uses: actions/upload-artifact@v4
         with:
           name: astro_remote-elf
-          path: astro_remote.elf
+          path: |
+            astro_remote.elf
+            astrokill.elf
           if-no-files-found: error
           retention-days: 14
