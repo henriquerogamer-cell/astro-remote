@@ -1,6 +1,4 @@
-#define main astro_v132_legacy_main
-#include "main_v132.c"
-#undef main
+#include "main_v132_embed.c"
 
 static const char *screen_page_v135=
 "<!doctype html>"
