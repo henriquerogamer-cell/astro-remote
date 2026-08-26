@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 
 #include "astro_offact.h"
+#include "astro_actremote.h"
 
 int sceUserServiceInitialize(void *);
 int sceUserServiceGetForegroundUser(int *);
@@ -174,6 +175,11 @@ static int astro_account_fake_activate_raw(astro_account_state_t *out)
     dbg_int("[account] <- SetInt rc=",rc);
     if(rc!=0){s.rc=-23;if(out)*out=s;return s.rc;}
 
+    dbg("[account] -> ActRemoteLink NP fake sign-in");
+    rc=astro_actremote_fake_signin(s.registry_index,s.foreground_user,s.account_name,id);
+    dbg_int("[account] <- ActRemoteLink fake sign-in rc=",rc);
+    if(rc!=0){s.rc=rc;if(out)*out=s;return s.rc;}
+
     rc=astro_account_get_current_raw(&s);
     if(rc==0 && s.account_id==id){s.activated=1;s.rc=0;}
     if(out)*out=s;
@@ -212,14 +218,14 @@ static int run_account_isolated(int activate,astro_account_state_t *out)
     }
 
     close(p[1]);
-    while(elapsed<3000){
+    while(elapsed<6000){
         pid_t w=waitpid(pid,&status,WNOHANG);
         if(w==pid)break;
         if(w<0&&errno!=EINTR){close(p[0]);return -102;}
         usleep(20000);
         elapsed+=20;
     }
-    if(elapsed>=3000){
+    if(elapsed>=6000){
         kill(pid,SIGKILL);
         waitpid(pid,&status,0);
         close(p[0]);
