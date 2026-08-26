@@ -86,6 +86,26 @@ int astro_rp_tracer_finalize(astro_rp_tracer_t *self)
     return rc;
 }
 
+int astro_rp_tracer_stack_scratch(astro_rp_tracer_t *self,size_t size,
+    uintptr_t *addr_out)
+{
+    astro_reg_t regs;
+    uintptr_t addr;
+    size_t reserve;
+
+    if(!self||self->pid<=0||!addr_out||size==0)return -1;
+    if((int)syscall(SYS_ptrace,PT_GETREGS,self->pid,(caddr_t)&regs,0)<0)return -2;
+
+    /* Keep a generous gap below the current stack pointer. tracer_call()
+       temporarily consumes one return-address word, so this scratch area
+       stays well clear of that slot. Align down to 16 bytes. */
+    reserve=(size+0x100u+15u)&~15u;
+    addr=((uintptr_t)regs.r_rsp-reserve)&~(uintptr_t)15u;
+    if(addr==0)return -3;
+    *addr_out=addr;
+    return 0;
+}
+
 uintptr_t astro_rp_tracer_call(astro_rp_tracer_t *self,uintptr_t addr,
     uintptr_t a,uintptr_t b,uintptr_t c,uintptr_t d,uintptr_t e,uintptr_t f)
 {
