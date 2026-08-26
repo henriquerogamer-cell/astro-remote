@@ -5,8 +5,18 @@ on:
   push:
     branches:
       - feat/ui-v03
+      - feat/remote-service
     paths:
       - '*.c'
+      - '*.h'
+      - 'Makefile'
+      - '.github/workflows/build-elf.yml'
+  pull_request:
+    branches:
+      - feat/ui-v03
+    paths:
+      - '*.c'
+      - '*.h'
       - 'Makefile'
       - '.github/workflows/build-elf.yml'
 
