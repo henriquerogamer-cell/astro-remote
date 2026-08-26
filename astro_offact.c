@@ -47,70 +47,6 @@ static void ensure_user_service(void)
     dbg_int("[account] <- UserService init rc=",g_user_service_init_rc);
 }
 
-/* UserService behaves reliably in a freshly forked payload process on the
-   tested PS5, while lazy initialization from the long-running web worker can
-   stall. Keep that API isolated and return only rc + foreground UID. */
-typedef struct foreground_result {
-    int rc;
-    int user;
-    int init_rc;
-} foreground_result_t;
-
-static int get_foreground_user_isolated(int *user_out)
-{
-    int p[2],status=0,elapsed=0;
-    pid_t pid;
-    foreground_result_t r;
-    ssize_t got=0;
-
-    memset(&r,0,sizeof(r));
-    r.rc=-1;
-    if(pipe(p)!=0)return -100;
-    pid=fork();
-    if(pid<0){close(p[0]);close(p[1]);return -101;}
-
-    if(pid==0){
-        foreground_result_t cr;
-        memset(&cr,0,sizeof(cr));
-        close(p[0]);
-        /* Reset inherited bookkeeping so this child always initializes its
-           own UserService context. */
-        g_user_service_init_attempted=0;
-        g_user_service_init_rc=0;
-        ensure_user_service();
-        cr.init_rc=g_user_service_init_rc;
-        cr.rc=sceUserServiceGetForegroundUser(&cr.user);
-        write(p[1],&cr,sizeof(cr));
-        close(p[1]);
-        _exit(0);
-    }
-
-    close(p[1]);
-    while(elapsed<2000){
-        pid_t w=waitpid(pid,&status,WNOHANG);
-        if(w==pid)break;
-        if(w<0&&errno!=EINTR){close(p[0]);return -102;}
-        usleep(20000);
-        elapsed+=20;
-    }
-    if(elapsed>=2000){
-        kill(pid,SIGKILL);
-        waitpid(pid,&status,0);
-        close(p[0]);
-        dbg("[account] isolated foreground lookup TIMEOUT");
-        return -103;
-    }
-
-    got=read(p[0],&r,sizeof(r));
-    close(p[0]);
-    if(got!=(ssize_t)sizeof(r))return -104;
-    dbg_int("[account] isolated UserService init rc=",r.init_rc);
-    dbg_int("[account] isolated foreground rc=",r.rc);
-    if(r.rc!=0)return r.rc;
-    if(user_out)*user_out=r.user;
-    return 0;
-}
-
 static int entity(int n,int max,int stride,int base,int fallback)
 {
     if(n<1||n>max)return fallback;
@@ -132,13 +68,14 @@ static uint64_t gen_account_id(const char *name)
     return base;
 }
 
-static int find_foreground_slot(int *user_out,int *slot_out)
+static int find_foreground_slot_raw(int *user_out,int *slot_out)
 {
     int user=0,rc;
     dbg("[account] start find_foreground_slot");
-    dbg("[account] -> isolated foreground user lookup");
-    rc=get_foreground_user_isolated(&user);
-    dbg_int("[account] <- isolated lookup rc=",rc);
+    ensure_user_service();
+    dbg("[account] -> sceUserServiceGetForegroundUser");
+    rc=sceUserServiceGetForegroundUser(&user);
+    dbg_int("[account] <- foreground rc=",rc);
     if(rc!=0)return -10;
     dbg_int("[account] foreground user=",user);
 
@@ -166,16 +103,16 @@ static void terminate_text(char *s,size_t n)
     if(s&&n)s[n-1]='\0';
 }
 
-int astro_account_get_current(astro_account_state_t *out)
+static int astro_account_get_current_raw(astro_account_state_t *out)
 {
     astro_account_state_t s;
     int rc,slot=0,user=0;
     char b[160];
     memset(&s,0,sizeof(s));
     s.rc=-1;
-    dbg("[account] astro_account_get_current BEGIN");
+    dbg("[account] astro_account_get_current RAW BEGIN");
 
-    rc=find_foreground_slot(&user,&slot);
+    rc=find_foreground_slot_raw(&user,&slot);
     snprintf(b,sizeof(b),"[account] find_foreground_slot rc=%d user=%d slot=%d",rc,user,slot);dbg(b);
     if(rc!=0){s.rc=rc;if(out)*out=s;return rc;}
     s.foreground_user=user;
@@ -206,15 +143,15 @@ int astro_account_get_current(astro_account_state_t *out)
     s.proposed_account_id=s.account_id?s.account_id:gen_account_id(s.account_name);
     s.activated=(s.account_id!=0 && strcmp(s.account_type,"np")==0 && (s.account_flags&4098)==4098);
     s.rc=0;
-    snprintf(b,sizeof(b),"[account] DONE activated=%d proposed=0x%016llx",s.activated,(unsigned long long)s.proposed_account_id);dbg(b);
+    snprintf(b,sizeof(b),"[account] RAW DONE activated=%d proposed=0x%016llx",s.activated,(unsigned long long)s.proposed_account_id);dbg(b);
     if(out)*out=s;
     return 0;
 }
 
-int astro_account_fake_activate_current(astro_account_state_t *out)
+static int astro_account_fake_activate_raw(astro_account_state_t *out)
 {
     astro_account_state_t s;
-    int rc=astro_account_get_current(&s);
+    int rc=astro_account_get_current_raw(&s);
     const char type[]="np";
     const int flags=4098;
     uint64_t id;
@@ -222,15 +159,87 @@ int astro_account_fake_activate_current(astro_account_state_t *out)
     id=s.account_id?s.account_id:s.proposed_account_id;
     if(!id){s.rc=-20;if(out)*out=s;return s.rc;}
 
+    dbg("[account] -> sceRegMgrSetBin(account_id)");
     rc=sceRegMgrSetBin(key_account_id(s.registry_index),&id,sizeof(id));
+    dbg_int("[account] <- SetBin rc=",rc);
     if(rc!=0){s.rc=-21;if(out)*out=s;return s.rc;}
+
+    dbg("[account] -> sceRegMgrSetStr(type=np)");
     rc=sceRegMgrSetStr(key_type(s.registry_index),type,sizeof(type));
+    dbg_int("[account] <- SetStr rc=",rc);
     if(rc!=0){s.rc=-22;if(out)*out=s;return s.rc;}
+
+    dbg("[account] -> sceRegMgrSetInt(flags=4098)");
     rc=sceRegMgrSetInt(key_flags(s.registry_index),flags);
+    dbg_int("[account] <- SetInt rc=",rc);
     if(rc!=0){s.rc=-23;if(out)*out=s;return s.rc;}
 
-    rc=astro_account_get_current(&s);
+    rc=astro_account_get_current_raw(&s);
     if(rc==0 && s.account_id==id){s.activated=1;s.rc=0;}
     if(out)*out=s;
     return s.rc;
+}
+
+typedef struct isolated_account_result {
+    int rc;
+    astro_account_state_t state;
+} isolated_account_result_t;
+
+static int run_account_isolated(int activate,astro_account_state_t *out)
+{
+    int p[2],status=0,elapsed=0;
+    pid_t pid;
+    isolated_account_result_t r;
+    ssize_t got;
+
+    memset(&r,0,sizeof(r));
+    r.rc=-199;
+    if(pipe(p)!=0)return -100;
+    pid=fork();
+    if(pid<0){close(p[0]);close(p[1]);return -101;}
+
+    if(pid==0){
+        isolated_account_result_t cr;
+        memset(&cr,0,sizeof(cr));
+        close(p[0]);
+        g_user_service_init_attempted=0;
+        g_user_service_init_rc=0;
+        dbg(activate?"[account] isolated ACTIVATE child":"[account] isolated READ child");
+        cr.rc=activate?astro_account_fake_activate_raw(&cr.state):astro_account_get_current_raw(&cr.state);
+        write(p[1],&cr,sizeof(cr));
+        close(p[1]);
+        _exit(0);
+    }
+
+    close(p[1]);
+    while(elapsed<3000){
+        pid_t w=waitpid(pid,&status,WNOHANG);
+        if(w==pid)break;
+        if(w<0&&errno!=EINTR){close(p[0]);return -102;}
+        usleep(20000);
+        elapsed+=20;
+    }
+    if(elapsed>=3000){
+        kill(pid,SIGKILL);
+        waitpid(pid,&status,0);
+        close(p[0]);
+        dbg(activate?"[account] isolated activation TIMEOUT":"[account] isolated read TIMEOUT");
+        return -103;
+    }
+
+    got=read(p[0],&r,sizeof(r));
+    close(p[0]);
+    if(got!=(ssize_t)sizeof(r))return -104;
+    if(out)*out=r.state;
+    return r.rc;
+}
+
+int astro_account_get_current(astro_account_state_t *out)
+{
+    return run_account_isolated(0,out);
+}
+
+int astro_account_fake_activate_current(astro_account_state_t *out)
+{
+    return run_account_isolated(1,out);
 }
