@@ -58,6 +58,23 @@ static void send_remote_action_v137(int fd,int start)
   send_remote_status_v137(fd);
 }
 
+static void send_remote_enable_v137(int fd)
+{
+  int rc=astro_remote_service_enable_remoteplay();
+  if(rc<0){
+    astro_remote_state_t s;
+    char j[512];
+    astro_remote_service_snapshot(&s);
+    snprintf(j,sizeof(j),
+      "{\"ok\":false,\"error\":\"remoteplay_enable_failed\","
+      "\"rc\":%d,\"phase\":\"%s\",\"worker_pid\":%d}",
+      rc,s.phase,s.worker_pid);
+    send_json(fd,"503 Service Unavailable",j);
+    return;
+  }
+  send_remote_status_v137(fd);
+}
+
 static void send_remote_restart_v137(int fd)
 {
   int rc=astro_remote_service_shutdown_worker();
@@ -79,9 +96,6 @@ static void send_remote_restart_v137(int fd)
   send_remote_status_v137(fd);
 }
 
-/* The Remote worker is managed by Astro, not discovered from Prospero's
-   .elf list. Add it to the same service catalogue explicitly so the UI and
-   proxy treat it exactly like every other internal web service. */
 static void send_api_services_v137(int fd)
 {
   char pr[ASTRO_HTTP_BUF],json[24576],names[64][128];
@@ -153,7 +167,6 @@ int main(void)
   running=1;
   astro_started_at=time(NULL);
   load_registry();
-  /* Fixed internal service. Only Astro is externally reachable on 45821. */
   add_service("remote","Astro Remote","astrorem",45822);
   load_hidden();
   astro_remote_service_init();
@@ -168,7 +181,7 @@ int main(void)
   a.sin_port=htons(ASTRO_PORT);
   if(bind(server,(struct sockaddr*)&a,sizeof(a))<0){close(server);return 1;}
   if(listen(server,8)<0){close(server);return 1;}
-  notify("ASTRO Remote v0.15.2 - Remote via internal service proxy");
+  notify("ASTRO Remote v0.15.3 - RP preflight + stable worker health");
 
   astro_remote_service_ensure_worker();
 
@@ -208,8 +221,6 @@ int main(void)
     if(!strcmp(path,"/favicon.ico")){send_no_content_v132(client);close(client);continue;}
     if((!strcmp(path,"/logout")||!strncmp(path,"/logout?",8))&&logged(buf)){send_logout_v13(client);close(client);continue;}
 
-    /* Legacy friendly aliases now enter the normal Astro service proxy.
-       No standalone /remote page is served by the supervisor anymore. */
     if((!strcmp(path,"/remote")||!strcmp(path,"/screen")||!strncmp(path,"/remote?",8)||!strncmp(path,"/screen?",8))&&logged(buf)){
       redirect_remote_service_v137(client);close(client);continue;
     }
@@ -237,6 +248,7 @@ int main(void)
     else if(strstr(buf,"GET /api/remote/status ")&&logged(buf))send_remote_status_v137(client);
     else if(strstr(buf,"POST /api/remote/start ")&&logged(buf))send_remote_action_v137(client,1);
     else if(strstr(buf,"POST /api/remote/stop ")&&logged(buf))send_remote_action_v137(client,0);
+    else if(strstr(buf,"POST /api/remote/enable ")&&logged(buf))send_remote_enable_v137(client);
     else if(strstr(buf,"POST /api/remote/restart ")&&logged(buf))send_remote_restart_v137(client);
     else if(strstr(buf,"POST /admin/shutdown ")&&logged(buf)){
       astro_remote_service_shutdown_worker();
