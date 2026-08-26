@@ -1,38 +1,63 @@
 #include <stddef.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 
 #include "remote_ps5_source.h"
 
-/* Native PS5 libraries, linked by the payload toolchain. */
-int sceRemoteplayInitialize(void *, size_t);
+/* Native PS5 registry API. We deliberately do NOT call
+ * sceRemoteplayInitialize() from the resident HTTP service path.
+ * LinkDev calls it from an application context, but doing the same
+ * synchronously from Astro's payload/service context can block the
+ * only HTTP worker and freeze the resident service.
+ */
 int sceRegMgrGetInt(long, int *);
 
-/* REMOTEPLAY_rp_enable registry key used by the PS5 Remote Play service. */
 #define ASTRO_REMOTEPLAY_ENABLE_KEY 1098973184L
 #define ASTRO_REMOTEPLAY_SESSION_PORT 9295
+#define ASTRO_CONNECT_TIMEOUT_MS 250
 
-static int g_remoteplay_init_attempted;
-static int g_remoteplay_init_rc;
-
-static int probe_loopback_tcp(int port)
+static int probe_loopback_tcp_timeout(int port)
 {
   int fd;
+  int flags;
   int rc;
+  int soerr=0;
+  socklen_t slen=sizeof(soerr);
   struct sockaddr_in a;
+  fd_set wfds;
+  struct timeval tv;
 
   fd=socket(AF_INET,SOCK_STREAM,0);
   if(fd<0)return 0;
+
+  flags=fcntl(fd,F_GETFL,0);
+  if(flags<0){close(fd);return 0;}
+  if(fcntl(fd,F_SETFL,flags|O_NONBLOCK)<0){close(fd);return 0;}
 
   memset(&a,0,sizeof(a));
   a.sin_family=AF_INET;
   a.sin_port=htons((uint16_t)port);
   a.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+
   rc=connect(fd,(struct sockaddr*)&a,sizeof(a));
+  if(rc==0){close(fd);return 1;}
+  if(errno!=EINPROGRESS){close(fd);return 0;}
+
+  FD_ZERO(&wfds);
+  FD_SET(fd,&wfds);
+  tv.tv_sec=ASTRO_CONNECT_TIMEOUT_MS/1000;
+  tv.tv_usec=(ASTRO_CONNECT_TIMEOUT_MS%1000)*1000;
+  rc=select(fd+1,NULL,&wfds,NULL,&tv);
+  if(rc<=0){close(fd);return 0;}
+  if(getsockopt(fd,SOL_SOCKET,SO_ERROR,&soerr,&slen)<0){close(fd);return 0;}
+
   close(fd);
-  return rc==0;
+  return soerr==0;
 }
 
 int astro_remote_ps5_source_probe(astro_remote_ps5_source_probe_t *out)
@@ -43,20 +68,17 @@ int astro_remote_ps5_source_probe(astro_remote_ps5_source_probe_t *out)
   memset(&p,0,sizeof(p));
   p.probed_at=time(NULL);
 
-  if(!g_remoteplay_init_attempted){
-    g_remoteplay_init_rc=sceRemoteplayInitialize(NULL,0);
-    g_remoteplay_init_attempted=1;
-  }
-
-  p.init_rc=g_remoteplay_init_rc;
-  p.remoteplay_initialized=(g_remoteplay_init_rc==0);
+  /* Safe/passive probe only. Native initialization is intentionally
+   * deferred until it can run in an isolated worker/context.
+   */
+  p.init_rc=1; /* 1 = intentionally skipped in safe probe mode */
+  p.remoteplay_initialized=0;
   p.reg_rc=sceRegMgrGetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,&enabled);
   p.remoteplay_enabled=(p.reg_rc==0&&enabled==1);
-  p.tcp_9295_open=probe_loopback_tcp(ASTRO_REMOTEPLAY_SESSION_PORT);
+  p.tcp_9295_open=probe_loopback_tcp_timeout(ASTRO_REMOTEPLAY_SESSION_PORT);
 
   if(out)*out=p;
 
-  if(!p.remoteplay_initialized)return -10;
   if(p.reg_rc!=0)return -20;
   if(!p.remoteplay_enabled)return -30;
   if(!p.tcp_9295_open)return -40;
