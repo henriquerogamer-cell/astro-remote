@@ -1,0 +1,48 @@
+name: Build Astro Split ELF
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/remote-service
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-18 lld-18 wget unzip make
+      - name: Install PS5 Payload SDK
+        run: |
+          wget -q https://github.com/ps5-payload-dev/sdk/releases/latest/download/ps5-payload-sdk.zip -O /tmp/ps5-payload-sdk.zip
+          sudo rm -rf /opt/ps5-payload-sdk /opt/ps5-payload-sdk-staging
+          sudo mkdir -p /opt/ps5-payload-sdk-staging /opt/ps5-payload-sdk
+          sudo unzip -q /tmp/ps5-payload-sdk.zip -d /opt/ps5-payload-sdk-staging
+          SDK_ROOT="$(dirname "$(find /opt/ps5-payload-sdk-staging -type f -path '*/toolchain/prospero.mk' -print -quit)")"
+          SDK_ROOT="$(dirname "$SDK_ROOT")"
+          test -n "$SDK_ROOT"
+          sudo cp -a "$SDK_ROOT"/. /opt/ps5-payload-sdk/
+      - name: Build split service
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+        run: |
+          make clean
+          make
+          test -s astro_remote.elf
+          test -s astrokill.elf
+          file astro_remote.elf
+          file astrokill.elf
+      - name: Upload split build
+        uses: actions/upload-artifact@v4
+        with:
+          name: astro_remote-split
+          path: |
+            astro_remote.elf
+            astrokill.elf
+          retention-days: 14
