@@ -19,6 +19,7 @@
 #include "rp_ptrace.h"
 
 #define LIBKERNEL_HANDLE 0x2001
+#define ASTRO_TRACER_PRIV_AUTHID 0x4800000000010003ULL
 
 typedef struct reg astro_reg_t;
 
@@ -47,10 +48,17 @@ int astro_rp_tracer_init(astro_rp_tracer_t *self,int pid)
     if(!self||pid<=0||mypid==pid)return -1;
     memset(self,0,sizeof(*self));
 
+    /* The resident Astro supervisor forks astrorem. On some PS5 payload
+       environments the SDK authid getter can return 0 for that freshly
+       forked worker even though the worker can still use the kernel setter
+       APIs. Do not stop at -32 in that case: use the standard privileged
+       payload authid as a disposable-worker fallback and keep the remaining
+       stages individually diagnosable (-33, -34, -35, ...). */
     authid=kernel_get_ucred_authid(mypid);
-    if(authid==0)return -2;
+    if(authid==0)authid=ASTRO_TRACER_PRIV_AUTHID;
+
     if(kernel_get_ucred_caps(mypid,caps))return -3;
-    if(kernel_set_ucred_authid(mypid,0x4800000000010003ULL))return -4;
+    if(kernel_set_ucred_authid(mypid,ASTRO_TRACER_PRIV_AUTHID))return -4;
     if(kernel_set_ucred_caps(mypid,privcaps)){
         kernel_set_ucred_authid(mypid,authid);
         return -5;
