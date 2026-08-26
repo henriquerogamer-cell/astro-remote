@@ -9,13 +9,8 @@
 
 #include "remote_ps5_source.h"
 
-/* Native PS5 registry API. We deliberately do NOT call
- * sceRemoteplayInitialize() from the resident HTTP service path.
- * LinkDev calls it from an application context, but doing the same
- * synchronously from Astro's payload/service context can block the
- * only HTTP worker and freeze the resident service.
- */
 int sceRegMgrGetInt(long, int *);
+int sceRegMgrSetInt(long, int);
 
 #define ASTRO_REMOTEPLAY_ENABLE_KEY 1098973184L
 #define ASTRO_REMOTEPLAY_SESSION_PORT 9295
@@ -60,6 +55,23 @@ static int probe_loopback_tcp_timeout(int port)
   return soerr==0;
 }
 
+int astro_remote_ps5_source_enable_remoteplay(void)
+{
+  int value=0;
+  int verify=0;
+  int rc=sceRegMgrGetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,&value);
+  if(rc!=0)return -20;
+
+  if(value!=1){
+    rc=sceRegMgrSetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,1);
+    if(rc!=0)return -21;
+  }
+
+  rc=sceRegMgrGetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,&verify);
+  if(rc!=0)return -22;
+  return verify==1?0:-23;
+}
+
 int astro_remote_ps5_source_probe(astro_remote_ps5_source_probe_t *out)
 {
   astro_remote_ps5_source_probe_t p;
@@ -68,10 +80,10 @@ int astro_remote_ps5_source_probe(astro_remote_ps5_source_probe_t *out)
   memset(&p,0,sizeof(p));
   p.probed_at=time(NULL);
 
-  /* Safe/passive probe only. Native initialization is intentionally
-   * deferred until it can run in an isolated worker/context.
-   */
-  p.init_rc=1; /* 1 = intentionally skipped in safe probe mode */
+  /* sceRemoteplayInitialize is intentionally not called here. Public PS5
+     payload research reports that it can block forever outside bigapp/
+     ShellUI context. Astro only performs passive registry/socket probes. */
+  p.init_rc=1;
   p.remoteplay_initialized=0;
   p.reg_rc=sceRegMgrGetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,&enabled);
   p.remoteplay_enabled=(p.reg_rc==0&&enabled==1);
