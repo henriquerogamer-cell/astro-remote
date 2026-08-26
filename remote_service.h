@@ -31,7 +31,7 @@ typedef struct astro_remote_state {
 } astro_remote_state_t;
 
 void astro_remote_service_init(void);
-int astro_remote_service_start(int inherited_server_fd,int inherited_client_fd);
+int astro_remote_service_start(void);
 int astro_remote_service_stop(void);
 void astro_remote_service_snapshot(astro_remote_state_t *out);
 
