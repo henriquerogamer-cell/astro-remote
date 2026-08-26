@@ -15,5 +15,7 @@ int astro_rp_tracer_finalize(astro_rp_tracer_t *self);
 uintptr_t astro_rp_tracer_call(astro_rp_tracer_t *self, uintptr_t addr,
     uintptr_t a, uintptr_t b, uintptr_t c,
     uintptr_t d, uintptr_t e, uintptr_t f);
+int astro_rp_tracer_stack_scratch(astro_rp_tracer_t *self, size_t size,
+    uintptr_t *addr_out);
 
 #endif
