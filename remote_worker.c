@@ -32,7 +32,7 @@ static void set_phase(const char *phase)
   snprintf(g_phase,sizeof(g_phase),"%s",phase?phase:"unknown");
 }
 
-static void run_safe_probe(void)
+static int run_safe_probe(void)
 {
   memset(&g_probe,0,sizeof(g_probe));
   set_phase("probing_remoteplay_source");
@@ -43,6 +43,7 @@ static void run_safe_probe(void)
   else if(g_probe_rc==-30)set_phase("remoteplay_disabled");
   else if(g_probe_rc==-40)set_phase("remoteplay_port_closed");
   else set_phase("remoteplay_probe_failed");
+  return g_probe_rc;
 }
 
 static void stop_session(void)
@@ -118,6 +119,8 @@ int astro_remote_worker_main(void)
   if(bind(server,(struct sockaddr *)&a,sizeof(a))<0){close(server);return 11;}
   if(listen(server,4)<0){close(server);return 12;}
 
+  /* Populate Remote Play state immediately, but keep the worker idle. */
+  run_safe_probe();
   set_phase("idle");
 
   while(g_worker_running){
@@ -153,8 +156,14 @@ int astro_remote_worker_main(void)
         else if(strstr(buf,"GET /status "))
           send_status(c);
         else if(strstr(buf,"POST /session/start ")){
-          g_session_active=1;
-          run_safe_probe();
+          int pr=run_safe_probe();
+          if(pr==-20||pr==-30){
+            g_session_active=0;
+          }else{
+            /* The actual Remote Play protocol handshake is the next stage.
+               For now the worker remains the owner of the requested session. */
+            g_session_active=1;
+          }
           send_status(c);
         }
         else if(strstr(buf,"POST /session/stop ")){
@@ -162,8 +171,20 @@ int astro_remote_worker_main(void)
           send_status(c);
         }
         else if(strstr(buf,"POST /probe ")){
-          if(g_session_active)run_safe_probe();
+          run_safe_probe();
           send_status(c);
+        }
+        else if(strstr(buf,"POST /remoteplay/enable ")){
+          int erc=astro_remote_ps5_source_enable_remoteplay();
+          if(erc==0){
+            run_safe_probe();
+            set_phase("remoteplay_enabled");
+            send_status(c);
+          }else{
+            char j[192];
+            snprintf(j,sizeof(j),"{\"ok\":false,\"error\":\"remoteplay_enable_failed\",\"rc\":%d}",erc);
+            send_json(c,"500 Internal Server Error",j);
+          }
         }
         else if(strstr(buf,"POST /shutdown ")){
           send_json(c,"200 OK","{\"ok\":true,\"stopping\":true}");
