@@ -5,6 +5,7 @@
 
 #include "astro_offact.h"
 
+int sceUserServiceInitialize(void *);
 int sceUserServiceGetForegroundUser(int *);
 int sceRegMgrGetInt(int, int *);
 int sceRegMgrGetStr(int, char *, size_t);
@@ -14,6 +15,8 @@ int sceRegMgrSetStr(int, const char *, size_t);
 int sceRegMgrSetBin(int, const void *, size_t);
 
 static int g_debug_fd=-1;
+static int g_user_service_init_attempted=0;
+static int g_user_service_init_rc=0;
 
 void astro_account_set_debug_fd(int fd){g_debug_fd=fd;}
 
@@ -29,6 +32,16 @@ static void dbg_int(const char *label,int v)
     char b[128];
     snprintf(b,sizeof(b),"%s%d",label,v);
     dbg(b);
+}
+
+static void ensure_user_service(void)
+{
+    if(g_user_service_init_attempted)return;
+    g_user_service_init_attempted=1;
+    int prio=256;
+    dbg("[account] -> sceUserServiceInitialize(prio=256)");
+    g_user_service_init_rc=sceUserServiceInitialize(&prio);
+    dbg_int("[account] <- UserService init rc=",g_user_service_init_rc);
 }
 
 static int entity(int n,int max,int stride,int base,int fallback)
@@ -56,6 +69,7 @@ static int find_foreground_slot(int *user_out,int *slot_out)
 {
     int user=0,rc;
     dbg("[account] start find_foreground_slot");
+    ensure_user_service();
     dbg("[account] -> sceUserServiceGetForegroundUser");
     rc=sceUserServiceGetForegroundUser(&user);
     dbg_int("[account] <- foreground rc=",rc);
