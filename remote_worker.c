@@ -34,6 +34,25 @@ static char g_phase[48]="idle";
 static void worker_signal(int sig){(void)sig;g_worker_running=0;}
 static void set_phase(const char *phase){snprintf(g_phase,sizeof(g_phase),"%s",phase?phase:"unknown");}
 
+static void json_safe_copy(char *dst,size_t dst_size,const char *src)
+{
+  size_t j=0;
+  if(!dst||dst_size==0)return;
+  if(!src){dst[0]='\0';return;}
+  for(size_t i=0;src[i]&&j+1<dst_size;i++){
+    unsigned char c=(unsigned char)src[i];
+    if(c=='"'||c=='\\'){
+      if(j+2>=dst_size)break;
+      dst[j++]='\\';dst[j++]=(char)c;
+    }else if(c>=0x20&&c<0x7f){
+      dst[j++]=(char)c;
+    }else{
+      dst[j++]='?';
+    }
+  }
+  dst[j]='\0';
+}
+
 static int refresh_account(void)
 {
   memset(&g_account,0,sizeof(g_account));
@@ -140,7 +159,7 @@ static void send_html(int fd,const char *body)
 
 static void send_status(int fd)
 {
-  char j[3200];
+  char j[4096],safe_name[96],safe_type[64];
   int protocol_ready=(g_protocol_rc==0);
   int session_authenticated=(protocol_ready&&g_protocol.http_status==200&&g_protocol.nonce_present);
   int pairing_required=(protocol_ready&&!session_authenticated);
@@ -150,6 +169,8 @@ static void send_status(int fd)
 
   refresh_pairing();
   refresh_account();
+  json_safe_copy(safe_name,sizeof(safe_name),g_account.account_name);
+  json_safe_copy(safe_type,sizeof(safe_type),g_account.account_type);
 
   snprintf(j,sizeof(j),
     "{\"ok\":true,\"service\":\"astrorem\",\"pid\":%d,\"port\":%d,\"bind\":\"127.0.0.1\",\"session_active\":%s,\"phase\":\"%s\","
@@ -161,8 +182,8 @@ static void send_status(int fd)
     "\"pairing_user\":%d,\"pairing_registry_index\":%d,\"pairing_account_id_ready\":%s,\"pairing_account_id\":\"%s\","
     "\"registration_persisted\":false,\"video_ready\":false,\"control_ready\":false}",
     (int)getpid(),ASTRO_REMOTE_WORKER_PORT,g_session_active?"true":"false",g_phase,
-    g_account_rc,g_account.account_name,g_account.foreground_user,g_account.registry_index,
-    (unsigned long long)g_account.account_id,(unsigned long long)g_account.proposed_account_id,g_account.account_type,g_account.account_flags,
+    g_account_rc,safe_name,g_account.foreground_user,g_account.registry_index,
+    (unsigned long long)g_account.account_id,(unsigned long long)g_account.proposed_account_id,safe_type,g_account.account_flags,
     g_account.activated?"true":"false",g_reboot_required?"true":"false",
     g_probe_rc,g_probe.remoteplay_enabled?"true":"false",g_probe.tcp_9295_open?"true":"false",g_protocol_rc,protocol_ready?"true":"false",
     session_authenticated?"true":"false",pairing_required?"true":"false",g_protocol.http_status,g_protocol.nonce_present?"true":"false",
@@ -192,7 +213,7 @@ int astro_remote_worker_main(void)
         if(strstr(buf,"GET / "))send_html(c,remote_page_v137);
         else if(strstr(buf,"GET /health "))send_json(c,"200 OK","{\"ok\":true,\"service\":\"astrorem\"}");
         else if(strstr(buf,"GET /status "))send_status(c);
-        else if(strstr(buf,"POST /account/refresh ")){refresh_account();set_phase(g_account.activated?"account_activated":"account_activation_required");send_status(c);}
+        else if(strstr(buf,"POST /account/refresh ")){refresh_account();set_phase(g_account_rc==0?(g_account.activated?"account_activated":"account_activation_required"):"account_detection_failed");send_status(c);}
         else if(strstr(buf,"POST /account/activate ")){
           int arc=activate_foreground_account();
           if(arc==0)send_status(c);else{char x[192];snprintf(x,sizeof(x),"{\"ok\":false,\"error\":\"account_activation_failed\",\"rc\":%d}",arc);send_json(c,"500 Internal Server Error",x);}
