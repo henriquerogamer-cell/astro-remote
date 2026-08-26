@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: astro-stream-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: remoteplay
+      POSTGRES_USER: remoteplay
+      POSTGRES_PASSWORD: ${ASTRO_STREAM_DB_PASSWORD:-remoteplay}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remoteplay -d remoteplay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - astro-stream-postgres:/var/lib/postgresql/data
+
+  dbtool:
+    image: ghcr.io/o1298098/remoteplay-dbtool:latest
+    container_name: astro-stream-dbtool
+    restart: "no"
+    environment:
+      Database__HOST: postgres
+      Database__PORT: 5432
+      Database__NAME: remoteplay
+      Database__USER: remoteplay
+      Database__PASSWORD: ${ASTRO_STREAM_DB_PASSWORD:-remoteplay}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    image: ghcr.io/o1298098/remoteplay-server:latest
+    container_name: astro-stream-backend
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Database__HOST: postgres
+      Database__PORT: 5432
+      Database__NAME: remoteplay
+      Database__USER: remoteplay
+      Database__PASSWORD: ${ASTRO_STREAM_DB_PASSWORD:-remoteplay}
+      JWT__Secret: ${ASTRO_STREAM_JWT_SECRET}
+      TZ: ${TZ:-America/Sao_Paulo}
+    ports:
+      - "${ASTRO_STREAM_API_PORT:-10111}:8080"
+      - "40200-40400:40200-40400/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dbtool:
+        condition: service_completed_successfully
+    networks:
+      default:
+      lan:
+        ipv4_address: ${ASTRO_STREAM_LAN_IP}
+
+  frontend:
+    image: ghcr.io/o1298098/remoteplay-web:latest
+    container_name: astro-stream-web
+    restart: unless-stopped
+    environment:
+      API_PROXY_URL: http://backend:8080
+    ports:
+      - "${ASTRO_STREAM_WEB_PORT:-10110}:80"
+    depends_on:
+      - backend
+
+networks:
+  default:
+    driver: bridge
+  lan:
+    driver: macvlan
+    driver_opts:
+      parent: ${ASTRO_STREAM_LAN_PARENT}
+    ipam:
+      config:
+        - subnet: ${ASTRO_STREAM_LAN_SUBNET}
+          gateway: ${ASTRO_STREAM_LAN_GATEWAY}
+
+volumes:
+  astro-stream-postgres:
