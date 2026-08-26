@@ -7,6 +7,10 @@
 typedef struct astro_remote_pairing_state {
     int rc;
     int pin_ready;
+    int pairing_active;
+    int pairing_complete;
+    int pair_stat;
+    int pair_error;
     int foreground_user;
     int registry_index;
     uint32_t pin;
@@ -15,8 +19,10 @@ typedef struct astro_remote_pairing_state {
     time_t expires_at;
 } astro_remote_pairing_state_t;
 
-/* Manual one-time pairing flow. The PIN is entered by the user from
- * Settings > System > Remote Play > Link Device on the PS5. */
-int astro_remote_pairing_submit_pin(uint32_t pin, astro_remote_pairing_state_t *out);
+/* LinkDev-style server-side pairing. This bypasses ShellUI/PSN checks and
+ * calls libSceRemoteplay directly from astrorem. */
+int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out);
+int astro_remote_pairing_poll(astro_remote_pairing_state_t *state);
+int astro_remote_pairing_cancel(astro_remote_pairing_state_t *state);
 
 #endif
