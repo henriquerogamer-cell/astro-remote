@@ -1,8 +1,7 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include <unistd.h>
+#include <time.h>
 
 #include "remote_pairing.h"
 
@@ -10,6 +9,10 @@ int sceUserServiceInitialize(void *);
 int sceUserServiceGetForegroundUser(int *);
 int sceRegMgrGetInt(int, int *);
 int sceRegMgrGetBin(int, void *, size_t);
+int sceRemoteplayInitialize(void *, size_t);
+int sceRemoteplayGeneratePinCode(uint32_t *);
+int sceRemoteplayConfirmDeviceRegist(int *, int *);
+int sceRemoteplayNotifyPinCodeError(int);
 
 #define PAIRING_TTL_SECONDS 300
 
@@ -73,30 +76,79 @@ static int current_user_and_account(int *user_out,int *idx_out,uint8_t account_i
     return 0;
 }
 
-int astro_remote_pairing_submit_pin(uint32_t pin,astro_remote_pairing_state_t *out)
+int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
 {
     astro_remote_pairing_state_t s;
     uint8_t account_id[8];
+    uint32_t pin=0;
     int rc;
 
     memset(&s,0,sizeof(s));
     s.rc=-1;
 
-    /* PS5 Link Device codes are eight decimal digits. Keep leading zeroes
-       valid by accepting the parsed numeric range 0..99999999; the UI
-       performs the exact 8-character validation before sending it here. */
-    if(pin>99999999u){s.rc=-2;if(out)*out=s;return s.rc;}
-
     rc=current_user_and_account(&s.foreground_user,&s.registry_index,account_id);
     if(rc!=0){s.rc=rc;if(out)*out=s;return rc;}
-
     base64_8(account_id,s.account_id_b64);
+
+    /* Same flow used by LinkDev: initialize Remote Play directly and ask
+       libSceRemoteplay for a real pairing PIN, bypassing ShellUI's PSN gate. */
+    rc=sceRemoteplayInitialize(NULL,0);
+    if(rc!=0){s.rc=-20;if(out)*out=s;return s.rc;}
+
+    (void)sceRemoteplayNotifyPinCodeError(1);
+    rc=sceRemoteplayGeneratePinCode(&pin);
+    if(rc!=0||pin==0){s.rc=-21;if(out)*out=s;return s.rc;}
+
     s.pin=pin;
     s.pin_ready=1;
+    s.pairing_active=1;
     s.generated_at=time(NULL);
     s.expires_at=s.generated_at+PAIRING_TTL_SECONDS;
     s.rc=0;
 
     if(out)*out=s;
+    return 0;
+}
+
+int astro_remote_pairing_poll(astro_remote_pairing_state_t *state)
+{
+    int stat=0,err=0,rc;
+    if(!state||!state->pairing_active)return -1;
+    if(time(NULL)>state->expires_at){
+        state->pairing_active=0;
+        state->pin_ready=0;
+        state->rc=-30;
+        return -30;
+    }
+
+    rc=sceRemoteplayConfirmDeviceRegist(&stat,&err);
+    if(rc!=0){state->rc=-31;return -31;}
+    state->pair_stat=stat;
+    state->pair_error=err;
+
+    if(stat==2){
+        state->pairing_complete=1;
+        state->pairing_active=0;
+        state->pin_ready=0;
+        state->rc=0;
+        return 1;
+    }
+    if(stat==3){
+        state->pairing_active=0;
+        state->pin_ready=0;
+        state->rc=-32;
+        return -32;
+    }
+    state->rc=0;
+    return 0;
+}
+
+int astro_remote_pairing_cancel(astro_remote_pairing_state_t *state)
+{
+    if(!state)return -1;
+    if(state->pairing_active)(void)sceRemoteplayNotifyPinCodeError(1);
+    state->pairing_active=0;
+    state->pin_ready=0;
+    state->rc=0;
     return 0;
 }
