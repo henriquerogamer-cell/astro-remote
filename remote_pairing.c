@@ -54,9 +54,6 @@ static int find_process(const char *name)
         int struct_size=*(int *)p;
         if(struct_size<=0||p+(size_t)struct_size>buf+sz)break;
 
-        /* The PS5 payload ecosystem uses these stable kinfo_proc offsets.
-           Using SDK struct fields here failed to locate SceShellUI on 12.60,
-           while the same raw offsets are used by rp-get-pin/ftpsrv. */
         if(struct_size>PS5_KINFO_TDNAME_OFFSET){
             pid_t pid=*(pid_t *)(p+PS5_KINFO_PID_OFFSET);
             const char *tdname=(const char *)(p+PS5_KINFO_TDNAME_OFFSET);
@@ -150,9 +147,15 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     notify_pin_addr=resolve_symbol_for_pid(shell_pid,"libSceRemoteplay.sprx","sceRemoteplayNotifyPinCodeError");
     calloc_addr=resolve_symbol_for_pid(shell_pid,"libSceLibcInternal.sprx","calloc");
     free_addr=resolve_symbol_for_pid(shell_pid,"libSceLibcInternal.sprx","free");
-    if(!gen_pin_addr||!notify_pin_addr||!calloc_addr||!free_addr){
-        s.rc=-21;if(out)*out=s;return s.rc;
-    }
+
+    /* Keep these failures separate. On newer firmwares libSceRemoteplay may
+       not already be mapped into SceShellUI, while libc is still present.
+       The exact code tells the next build whether we need to load the SPRX
+       into ShellUI or whether the libc lookup itself changed. */
+    if(!gen_pin_addr){s.rc=-21;if(out)*out=s;return s.rc;}
+    if(!notify_pin_addr){s.rc=-22;if(out)*out=s;return s.rc;}
+    if(!calloc_addr){s.rc=-23;if(out)*out=s;return s.rc;}
+    if(!free_addr){s.rc=-24;if(out)*out=s;return s.rc;}
 
     rc=astro_rp_tracer_init(&tr,shell_pid);
     if(rc!=0){s.rc=-30+rc;if(out)*out=s;return s.rc;}
@@ -161,8 +164,6 @@ int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
     mem=astro_rp_tracer_call(&tr,calloc_addr,1,sizeof(uint32_t),0,0,0,0);
     if(mem==0||mem==(uintptr_t)-1){s.rc=-40;goto cleanup;}
 
-    /* Invalidate a previous pairing code. Failure here is non-fatal because
-       some firmwares return an error when no previous PIN exists. */
     astro_rp_tracer_call(&tr,notify_pin_addr,1,0,0,0,0,0);
 
     call_rc=astro_rp_tracer_call(&tr,gen_pin_addr,mem,0,0,0,0,0);
