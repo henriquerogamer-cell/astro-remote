@@ -10,7 +10,7 @@ endif
 ELF := astro_remote.elf
 ASTROKILL := astrokill.elf
 CFLAGS := -Wall -Werror -Wno-trigraphs -g
-LDADD := -lkernel_sys -lSceRegMgr -lSceUserService
+LDADD := -lkernel_sys -lSceRegMgr -lSceUserService -lSceRemoteplay
 
 all: $(ELF) $(ASTROKILL)
 
