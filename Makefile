@@ -15,10 +15,11 @@ else
 endif
 
 ELF := astro_remote.elf
+ASTROKILL := astrokill.elf
 CFLAGS := -Wall -Werror -g
 LDADD := -lSceRegMgr -lSceRemoteplay
 
-all: $(ELF)
+all: $(ELF) $(ASTROKILL)
 
 main_v12_embed.c: main_v12.c
 	sed 's/^int main(void)$$/int astro_v12_legacy_main(void)/' $< > $@
@@ -32,8 +33,11 @@ main_v132_embed.c: main_v132.c main_v13_embed.c
 $(ELF): main_v136.c remote_service.c remote_service.h remote_ps5_source.c remote_ps5_source.h main_v132_embed.c main_v13_embed.c main_v12_embed.c main_v03.c astro_process_name.c
 	$(CC) $(CFLAGS) -o $@ main_v136.c remote_service.c remote_ps5_source.c astro_process_name.c $(LDADD)
 
+$(ASTROKILL): astrokill.c
+	$(CC) $(CFLAGS) -o $@ astrokill.c
+
 clean:
-	rm -f $(ELF) main_v12_embed.c main_v13_embed.c main_v132_embed.c
+	rm -f $(ELF) $(ASTROKILL) main_v12_embed.c main_v13_embed.c main_v132_embed.c
 
 test: $(ELF)
 	$(PS5_DEPLOY) -h $(PS5_HOST) -p $(PS5_PORT) $^
