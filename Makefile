@@ -29,8 +29,8 @@ main_v136_embed.c: main_v136.c main_v132_embed.c
 main_v137_build.c: main_v137.c main_v136_embed.c
 	{ printf '%s\n' '#include "main_v136_embed.c"'; tail -n +4 main_v137.c; } > $@
 
-$(ELF): main_v137_build.c remote_service.c remote_service.h remote_worker.c remote_worker.h remote_ps5_source.c remote_ps5_source.h remote_pairing.c remote_pairing.h main_v136_embed.c main_v132_embed.c main_v13_embed.c main_v12_embed.c main_v03.c astro_process_name.c
-	$(CC) $(CFLAGS) -o $@ main_v137_build.c remote_service.c remote_worker.c remote_ps5_source.c remote_pairing.c astro_process_name.c $(LDADD)
+$(ELF): main_v137_build.c remote_service.c remote_service.h remote_worker.c remote_worker.h remote_ps5_source.c remote_ps5_source.h remote_pairing.c remote_pairing.h astro_offact.c astro_offact.h main_v136_embed.c main_v132_embed.c main_v13_embed.c main_v12_embed.c main_v03.c astro_process_name.c
+	$(CC) $(CFLAGS) -o $@ main_v137_build.c remote_service.c remote_worker.c remote_ps5_source.c remote_pairing.c astro_offact.c astro_process_name.c $(LDADD)
 
 $(ASTROKILL): astrokill.c
 	$(CC) $(CFLAGS) -o $@ astrokill.c
