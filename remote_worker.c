@@ -15,9 +15,10 @@
 #include "remote_ps5_source.h"
 
 static volatile sig_atomic_t g_worker_running=1;
+static int g_session_active=0;
 static astro_remote_ps5_source_probe_t g_probe;
 static int g_probe_rc=-999;
-static char g_phase[48]="starting";
+static char g_phase[48]="idle";
 
 static void worker_signal(int sig)
 {
@@ -33,6 +34,7 @@ static void set_phase(const char *phase)
 static void run_safe_probe(void)
 {
   memset(&g_probe,0,sizeof(g_probe));
+  set_phase("probing_remoteplay_source");
   g_probe_rc=astro_remote_ps5_source_probe(&g_probe);
 
   if(g_probe_rc==0)set_phase("remoteplay_source_detected");
@@ -40,6 +42,12 @@ static void run_safe_probe(void)
   else if(g_probe_rc==-30)set_phase("remoteplay_disabled");
   else if(g_probe_rc==-40)set_phase("remoteplay_port_closed");
   else set_phase("remoteplay_probe_failed");
+}
+
+static void stop_session(void)
+{
+  g_session_active=0;
+  set_phase("idle");
 }
 
 static void send_json(int fd,const char *status,const char *body)
@@ -59,13 +67,15 @@ static void send_json(int fd,const char *status,const char *body)
 
 static void send_status(int fd)
 {
-  char j[768];
+  char j[896];
   snprintf(j,sizeof(j),
     "{\"ok\":true,\"service\":\"astrorem\",\"pid\":%d,\"port\":%d,"
-    "\"bind\":\"127.0.0.1\",\"phase\":\"%s\",\"source_probe_rc\":%d,"
-    "\"remoteplay_enabled\":%s,\"remoteplay_tcp_9295\":%s,"
-    "\"video_ready\":false,\"control_ready\":false}",
-    (int)getpid(),ASTRO_REMOTE_WORKER_PORT,g_phase,g_probe_rc,
+    "\"bind\":\"127.0.0.1\",\"session_active\":%s,\"phase\":\"%s\","
+    "\"source_probe_rc\":%d,\"remoteplay_enabled\":%s,"
+    "\"remoteplay_tcp_9295\":%s,\"video_ready\":false,"
+    "\"control_ready\":false}",
+    (int)getpid(),ASTRO_REMOTE_WORKER_PORT,
+    g_session_active?"true":"false",g_phase,g_probe_rc,
     g_probe.remoteplay_enabled?"true":"false",
     g_probe.tcp_9295_open?"true":"false");
   send_json(fd,"200 OK",j);
@@ -93,8 +103,7 @@ int astro_remote_worker_main(void)
   if(bind(server,(struct sockaddr *)&a,sizeof(a))<0){close(server);return 11;}
   if(listen(server,4)<0){close(server);return 12;}
 
-  set_phase("worker_online");
-  run_safe_probe();
+  set_phase("idle");
 
   while(g_worker_running){
     fd_set rfds;
@@ -126,8 +135,17 @@ int astro_remote_worker_main(void)
           send_json(c,"200 OK","{\"ok\":true,\"service\":\"astrorem\"}");
         else if(strstr(buf,"GET /status "))
           send_status(c);
-        else if(strstr(buf,"POST /probe ")){
+        else if(strstr(buf,"POST /session/start ")){
+          g_session_active=1;
           run_safe_probe();
+          send_status(c);
+        }
+        else if(strstr(buf,"POST /session/stop ")){
+          stop_session();
+          send_status(c);
+        }
+        else if(strstr(buf,"POST /probe ")){
+          if(g_session_active)run_safe_probe();
           send_status(c);
         }
         else if(strstr(buf,"POST /shutdown ")){
