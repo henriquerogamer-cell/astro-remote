@@ -8,9 +8,15 @@ typedef struct astro_remote_state {
   int session_active;
   int video_ready;
   int control_ready;
+  int source_available;
+  int remoteplay_initialized;
+  int remoteplay_enabled;
+  int remoteplay_tcp_9295;
+  int source_probe_rc;
   unsigned long generation;
   time_t session_started_at;
   time_t last_change_at;
+  time_t source_probed_at;
   char phase[48];
 } astro_remote_state_t;
 
