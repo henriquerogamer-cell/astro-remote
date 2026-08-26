@@ -81,6 +81,10 @@ int main(void)
   if(listen(server,8)<0){close(server);return 1;}
   notify("ASTRO Remote v0.15.0 split service - 45821 + localhost 45822");
 
+  /* Start the isolated Remote worker immediately. The public Astro listener
+     stays on 45821; astrorem owns only 127.0.0.1:45822 and starts idle. */
+  astro_remote_service_ensure_worker();
+
   while(running){
     int total;
     char method[16],path[ASTRO_PROXY_PATH_MAX],ver[16];
@@ -142,7 +146,7 @@ int main(void)
     else if(strstr(buf,"POST /api/remote/start ")&&logged(buf))send_remote_action_v137(client,1);
     else if(strstr(buf,"POST /api/remote/stop ")&&logged(buf))send_remote_action_v137(client,0);
     else if(strstr(buf,"POST /admin/shutdown ")&&logged(buf)){
-      astro_remote_service_stop();
+      astro_remote_service_shutdown_worker();
       send_response(client,"200 OK",NULL,shutdown_page);
       running=0;
     }
@@ -152,7 +156,7 @@ int main(void)
     close(client);
   }
 
-  astro_remote_service_stop();
+  astro_remote_service_shutdown_worker();
   close(server);
   notify("ASTRO Remote encerrado");
   return 0;
