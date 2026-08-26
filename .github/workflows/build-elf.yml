@@ -47,6 +47,13 @@ jobs:
           sudo cp -a "$SDK_ROOT"/. /opt/ps5-payload-sdk/
           test -f /opt/ps5-payload-sdk/toolchain/prospero.mk
 
+      - name: Fetch ActRemoteLink NP templates
+        run: |
+          wget -q https://raw.githubusercontent.com/francoataffarel/ActRemoteLink/main/auth_dat.h -O auth_dat.h
+          wget -q https://raw.githubusercontent.com/francoataffarel/ActRemoteLink/main/config_dat.h -O config_dat.h
+          test -s auth_dat.h
+          test -s config_dat.h
+
       - name: Build Astro Remote
         env:
           PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
