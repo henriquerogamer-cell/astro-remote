@@ -1,4 +1,4 @@
-name: Build Astro Split ELF v0.15
+name: Build Astro Split ELF v0.16
 
 on:
   workflow_dispatch:
@@ -28,16 +28,18 @@ jobs:
           SDK_ROOT="$(dirname "$SDK_ROOT")"
           test -n "$SDK_ROOT"
           sudo cp -a "$SDK_ROOT"/. /opt/ps5-payload-sdk/
-      - name: Build split service
+      - name: Build independent services
         env:
           PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
         run: |
           make clean
           make
           test -s astro_remote.elf
+          test -s astrorem.elf
           test -s astrokill.elf
           test -s astrolock.elf
           file astro_remote.elf
+          file astrorem.elf
           file astrokill.elf
           file astrolock.elf
       - name: Upload split build
@@ -46,6 +48,7 @@ jobs:
           name: astro_remote-split
           path: |
             astro_remote.elf
+            astrorem.elf
             astrokill.elf
             astrolock.elf
           retention-days: 14
