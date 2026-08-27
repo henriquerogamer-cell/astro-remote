@@ -1,0 +1,39 @@
+name: Astro Remote Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y bash clang-18 lld-18 build-essential cmake pkg-config
+
+      - name: Install PS5 payload toolchain
+        run: |
+          wget -q https://github.com/ps5-payload-dev/pacbrew-repo/releases/latest/download/ps5-payload-dev.tar.gz
+          sudo tar xf ps5-payload-dev.tar.gz -C /
+
+      - name: Build Astro Remote
+        run: |
+          export PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
+          make clean
+          make
+          file astro_remote.elf
+
+      - name: Upload ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: astro_remote
+          path: astro_remote.elf
+          if-no-files-found: error
