@@ -30,8 +30,8 @@ $(ELF): main_v136.c remote_service.c remote_service.h remote_worker.c remote_wor
 $(ASTROKILL): astrokill.c
 	$(CC) $(CFLAGS) -o $@ astrokill.c
 
-$(ASTROLOCK): astrolock_web.c astrolock_offact.c astrolock_offact.h
-	$(CC) $(CFLAGS) -o $@ astrolock_web.c astrolock_offact.c -lSceRegMgr
+$(ASTROLOCK): astrolock_web.c astrolock_offact.c astrolock_offact.h astrolock_process_name.c
+	$(CC) $(CFLAGS) -o $@ astrolock_web.c astrolock_offact.c astrolock_process_name.c -lSceRegMgr
 
 clean:
 	rm -f $(ELF) $(ASTROKILL) $(ASTROLOCK) main_v12_embed.c main_v13_embed.c main_v132_embed.c main_v136_embed.c main_v137_build.c
