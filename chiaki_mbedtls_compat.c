@@ -49,7 +49,10 @@ int mbedtls_md_hmac_starts(mbedtls_md_context_t *ctx,const unsigned char *key,si
 int mbedtls_md_hmac_update(mbedtls_md_context_t *ctx,const unsigned char *input,size_t ilen){if(!ctx||!ctx->active)return -1;astro_sha256_update(&ctx->inner,input,ilen);return 0;}
 int mbedtls_md_hmac_finish(mbedtls_md_context_t *ctx,unsigned char *output)
 {
-    unsigned char inner[32];astro_sha256_ctx_t outer;
+    unsigned char inner[32],digest[32];astro_sha256_ctx_t outer;
     if(!ctx||!ctx->active||!output)return -1;
-    astro_sha256_final(&ctx->inner,inner);astro_sha256_init(&outer);astro_sha256_update(&outer,ctx->opad,64);astro_sha256_update(&outer,inner,32);astro_sha256_final(&outer,output);ctx->active=0;return 0;
+    astro_sha256_final(&ctx->inner,inner);
+    astro_sha256_init(&outer);astro_sha256_update(&outer,ctx->opad,64);astro_sha256_update(&outer,inner,32);astro_sha256_final(&outer,digest);
+    /* chiaki-ng's registration rpcrypt consumes the first 16 bytes only. */
+    memcpy(output,digest,16);ctx->active=0;return 0;
 }
