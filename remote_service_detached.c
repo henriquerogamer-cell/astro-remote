@@ -1,10 +1,13 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -52,7 +55,8 @@ static int connect_worker(void)
   rc=connect(fd,(struct sockaddr *)&a,sizeof(a));
   if(rc!=0){
     if(errno!=EINPROGRESS){close(fd);return -1;}
-    FD_ZERO(&wfds);FD_SET(fd,&wfds);
+    FD_ZERO(&wfds);
+    FD_SET(fd,&wfds);
     tv.tv_sec=DETACHED_CONNECT_TIMEOUT_MS/1000;
     tv.tv_usec=(DETACHED_CONNECT_TIMEOUT_MS%1000)*1000;
     rc=select(fd+1,NULL,&wfds,NULL,&tv);
@@ -87,7 +91,8 @@ static int worker_request(const char *method,const char *path,char *out,size_t o
     if(n==0)break;
     if(errno==EINTR)continue;
     if((errno==EAGAIN||errno==EWOULDBLOCK)&&used>0)break;
-    close(fd);return used?0:-3;
+    close(fd);
+    return used?0:-3;
   }
   close(fd);
   if(!used)return -3;
@@ -104,7 +109,8 @@ static int json_bool(const char *j,const char *key)
 
 static int json_int(const char *j,const char *key,int fallback)
 {
-  char p[96];const char *s;
+  char p[96];
+  const char *s;
   snprintf(p,sizeof(p),"\"%s\":",key);
   s=strstr(j,p);
   return s?atoi(s+strlen(p)):fallback;
@@ -112,18 +118,33 @@ static int json_int(const char *j,const char *key,int fallback)
 
 static void json_string(const char *j,const char *key,char *out,size_t outsz)
 {
-  char p[96];const char *s,*e;size_t n;
-  if(!out||!outsz)return;out[0]='\0';
+  char p[96];
+  const char *s,*e;
+  size_t n;
+
+  if(!out||!outsz)return;
+  out[0]='\0';
   snprintf(p,sizeof(p),"\"%s\":\"",key);
-  s=strstr(j,p);if(!s)return;s+=strlen(p);e=strchr(s,'\"');if(!e)return;
-  n=(size_t)(e-s);if(n>=outsz)n=outsz-1;memcpy(out,s,n);out[n]='\0';
+  s=strstr(j,p);
+  if(!s)return;
+  s+=strlen(p);
+  e=strchr(s,'\"');
+  if(!e)return;
+  n=(size_t)(e-s);
+  if(n>=outsz)n=outsz-1;
+  memcpy(out,s,n);
+  out[n]='\0';
 }
 
 static int apply_status(const char *buf)
 {
   char phase[48];
   if(!buf||!strstr(buf,"\"service\":\"astrorem\""))return -1;
-  phase[0]='\0';json_string(buf,"phase",phase,sizeof(phase));if(phase[0])set_phase(phase);
+
+  phase[0]='\0';
+  json_string(buf,"phase",phase,sizeof(phase));
+  if(phase[0])set_phase(phase);
+
   g_remote.worker_pid=json_int(buf,"pid",g_remote.worker_pid);
   g_remote.session_active=json_bool(buf,"session_active");
   g_remote.remoteplay_enabled=json_bool(buf,"remoteplay_enabled");
@@ -158,9 +179,16 @@ int astro_remote_service_ensure_worker(void)
 {
   char buf[512];
   if(worker_request("GET","/health",buf,sizeof(buf))!=0||!strstr(buf,"\"ok\":true")){
-    g_remote.service_online=0;g_remote.worker_port_open=0;set_phase("detached_remote_offline");return -1;
+    g_remote.service_online=0;
+    g_remote.worker_port_open=0;
+    set_phase("detached_remote_offline");
+    return -1;
   }
-  if(refresh_status()!=0){g_remote.service_online=0;set_phase("detached_remote_unresponsive");return -2;}
+  if(refresh_status()!=0){
+    g_remote.service_online=0;
+    set_phase("detached_remote_unresponsive");
+    return -2;
+  }
   return 0;
 }
 
@@ -203,7 +231,9 @@ int astro_remote_service_shutdown_worker(void)
 void astro_remote_service_snapshot(astro_remote_state_t *out)
 {
   if(refresh_status()!=0){
-    g_remote.service_online=0;g_remote.worker_port_open=0;g_remote.worker_pid=0;
+    g_remote.service_online=0;
+    g_remote.worker_port_open=0;
+    g_remote.worker_pid=0;
     set_phase("detached_remote_offline");
   }
   if(out)*out=g_remote;
