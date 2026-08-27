@@ -110,12 +110,48 @@ static void send_api_services_v137(int fd)
 
 static void redirect_remote_service_v137(int fd){send_response(fd,"302 Found","Location: /service/remote/\r\nCache-Control: no-store\r\n","");}
 
+static const char *dash_account_patch_v137=
+"<style>"
+"#astro-account-profile{display:flex;align-items:center;gap:9px;margin-left:auto;margin-right:10px;padding:5px 10px 5px 5px;border:1px solid #304050;border-radius:999px;background:linear-gradient(180deg,#121b25,#0b1119);min-width:170px}"
+"#astro-account-profile img{width:34px;height:34px;border-radius:50%;object-fit:cover;border:1px solid #bce8e8;box-shadow:0 0 16px rgba(171,230,231,.18);background:#0b1118}"
+"#astro-account-profile b{display:block;font-size:11px;color:#e9f6f7;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+"#astro-account-profile small{display:block;color:#74889a;font-size:9px;margin-top:2px;letter-spacing:.04em}"
+"#astro-account-profile .sigil{color:#bce8e8;font-size:10px;margin-left:2px}"
+"@media(max-width:760px){#astro-account-profile{min-width:0;margin-right:6px;padding-right:7px}#astro-account-profile b{max-width:78px}#astro-account-profile .sigil{display:none}.topbar .status{display:none}}"
+"</style>"
+"<script>(function(){"
+"if(document.getElementById('astro-account-profile'))return;"
+"var bar=document.querySelector('.topbar');if(!bar)return;"
+"var card=document.createElement('div');card.id='astro-account-profile';"
+"card.innerHTML=\"<img id='astro-account-avatar' alt='Avatar'><div><b id='astro-account-name'>Lendo conta...</b><small id='astro-account-state'>PS5 · PERFIL LOCAL</small></div><span class='sigil'>✦</span>\";"
+"var st=bar.querySelector('.status');if(st)bar.insertBefore(card,st);else bar.appendChild(card);"
+"var loadedUser='';"
+"function refresh(){fetch('/service/lock/_root/status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){"
+"var n=document.getElementById('astro-account-name'),s=document.getElementById('astro-account-state'),a=document.getElementById('astro-account-avatar');"
+"if(!n||!s||!a)return;"
+"if(d.account_valid){n.textContent=d.account_name||'Usuario PS5';s.textContent=d.account_activated?'CONTA ATIVADA':'CONTA LOCAL';var u=String(d.account_user||'0');if(loadedUser!==u){a.src='/service/lock/_root/avatar?u='+encodeURIComponent(u)+'&t='+Date.now();loadedUser=u;}}"
+"else{s.textContent=d.job_running?'LENDO PERFIL...':'PERFIL INDISPONIVEL';}"
+"}).catch(function(){var s=document.getElementById('astro-account-state');if(s)s.textContent='ASTRO LOCK OFFLINE';});}"
+"refresh();setInterval(refresh,3000);"
+"})();</script>";
+
+static void send_dashboard_v137(int fd)
+{
+  const char *m=strstr(dashboard_page,"</body>");
+  char h[512];
+  size_t a,b,p,q,r,s,c,t;
+  if(!m){send_response(fd,"200 OK",NULL,dashboard_page);return;}
+  a=(size_t)(m-dashboard_page);b=strlen(dash_script);p=strlen(dash_patch_v13);q=strlen(dash_patch_v132);r=strlen(dash_remote_patch_v136);s=strlen(dash_account_patch_v137);c=strlen(m);t=a+b+p+q+r+s+c;
+  snprintf(h,sizeof(h),"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",t);
+  send(fd,h,strlen(h),0);send(fd,dashboard_page,a,0);send(fd,dash_script,b,0);send(fd,dash_patch_v13,p,0);send(fd,dash_patch_v132,q,0);send(fd,dash_remote_patch_v136,r,0);send(fd,dash_account_patch_v137,s,0);send(fd,m,c,0);
+}
+
 int main(void)
 {
   int server,client,opt=1;struct sockaddr_in a;char buf[8192];
   running=1;astro_started_at=time(NULL);load_registry();add_service("remote","Astro Remote","astrorem",45822);add_service("lock","Astro Lock","astrolock",45823);load_hidden();astro_remote_service_init();signal(SIGPIPE,SIG_IGN);
   server=socket(AF_INET,SOCK_STREAM,0);if(server<0)return 1;setsockopt(server,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof(opt));memset(&a,0,sizeof(a));a.sin_family=AF_INET;a.sin_addr.s_addr=INADDR_ANY;a.sin_port=htons(ASTRO_PORT);if(bind(server,(struct sockaddr*)&a,sizeof(a))<0){close(server);return 1;}if(listen(server,8)<0){close(server);return 1;}
-  notify("ASTRO Remote v0.16 - Remote + Lock split architecture");
+  notify("ASTRO Remote v0.17 - account profile + native pairing");
   ensure_astrolock_v137();astro_remote_service_ensure_worker();
 
   while(running){
@@ -140,7 +176,7 @@ int main(void)
     else if(strstr(buf,"POST /api/remote/enable ")&&logged(buf))send_remote_enable_v137(client);
     else if(strstr(buf,"POST /api/remote/restart ")&&logged(buf))send_remote_restart_v137(client);
     else if(strstr(buf,"POST /admin/shutdown ")&&logged(buf)){astro_remote_service_shutdown_worker();request_astrolock_stop_v137();send_response(client,"200 OK",NULL,shutdown_page);running=0;}
-    else if(strstr(buf,"GET / ")&&logged(buf))send_dashboard_v136(client);
+    else if(strstr(buf,"GET / ")&&logged(buf))send_dashboard_v137(client);
     else if(logged(buf)&&(svc=service_from_cookie(buf))!=NULL)proxy_request_v134(client,buf,total,svc,path);
     else send_response(client,"200 OK",NULL,login_page);
     close(client);
