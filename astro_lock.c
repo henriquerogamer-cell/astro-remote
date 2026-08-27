@@ -1,3 +1,4 @@
+#define ASTRO_LOCK_LOCAL_DPRINTF
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
