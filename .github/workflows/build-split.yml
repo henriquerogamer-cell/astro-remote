@@ -36,8 +36,10 @@ jobs:
           make
           test -s astro_remote.elf
           test -s astrokill.elf
+          test -s astrolock.elf
           file astro_remote.elf
           file astrokill.elf
+          file astrolock.elf
       - name: Upload split build
         uses: actions/upload-artifact@v4
         with:
@@ -45,4 +47,5 @@ jobs:
           path: |
             astro_remote.elf
             astrokill.elf
+            astrolock.elf
           retention-days: 14
