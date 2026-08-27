@@ -7,7 +7,6 @@
  * separate from astro_remote.elf.
  */
 #include <arpa/inet.h>
-#include <ctype.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -15,7 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -207,13 +205,11 @@ static void send_activation(int fd, const char *request)
     char confirm[32];
     char id_s[64];
     char name[ASTRO_OFFACT_NAME_MAX];
-    char old_type[ASTRO_OFFACT_TYPE_MAX];
     char new_type[ASTRO_OFFACT_TYPE_MAX];
     char safe_name[ASTRO_OFFACT_NAME_MAX * 2];
     uint64_t old_id = 0;
     uint64_t new_id = 0;
     uint64_t verify_id = 0;
-    int old_flags = 0;
     int verify_flags = 0;
     int slot;
     int rc;
@@ -236,7 +232,6 @@ static void send_activation(int fd, const char *request)
     }
 
     memset(name, 0, sizeof(name));
-    memset(old_type, 0, sizeof(old_type));
     if(astro_offact_get_name(slot, name) != 0 || !name[0]){
         send_json(fd, "404 Not Found",
             "{\"ok\":false,\"error\":\"account_not_found\"}");
@@ -244,8 +239,6 @@ static void send_activation(int fd, const char *request)
     }
 
     (void)astro_offact_get_id(slot, &old_id);
-    (void)astro_offact_get_type(slot, old_type);
-    (void)astro_offact_get_flags(slot, &old_flags);
 
     if(form_value(request, "account_id", id_s, sizeof(id_s)) && id_s[0]){
         char *end = NULL;
@@ -361,7 +354,7 @@ static int read_request(int fd, char *buf, size_t cap)
             buf[used] = '\0';
             end = strstr(buf, "\r\n\r\n");
             if(end){
-                char *cl = strcasestr(buf, "Content-Length:");
+                char *cl = strstr(buf, "Content-Length:");
                 header_len = (size_t)((end + 4) - buf);
                 if(cl)content_length = atoi(cl + 15);
                 if(used >= header_len + (size_t)(content_length > 0 ? content_length : 0))break;
