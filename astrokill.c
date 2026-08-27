@@ -123,7 +123,6 @@ int main(void)
 {
   char msg[256];
   int main_before=process_exists(ASTRO_MAIN_PROCESS);
-  int worker_before=process_exists(ASTRO_WORKER_PROCESS);
   int main_rc=-99,worker_rc=-99;
   int worker_gone=0,main_gone=0;
 
