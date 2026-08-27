@@ -7,6 +7,12 @@ if len(sys.argv) != 3:
 
 src = Path(sys.argv[1]).read_text()
 
+old = '#include "remote_page_v137.h"'
+new = '#include "remote_page_split.h"'
+if old not in src:
+    raise SystemExit("worker remote page include marker not found")
+src = src.replace(old, new, 1)
+
 old = 'else if(strstr(buf,"POST /shutdown ")){send_json(c,"200 OK","{\\"ok\\":true,\\"stopping\\":true}");g_worker_running=0;}'
 new = 'else if(strstr(buf,"POST /shutdown ")){stop_session();send_json(c,"200 OK","{\\"ok\\":true,\\"stopping\\":true,\\"remoteplay_cleanup\\":true}");g_worker_running=0;}'
 if old not in src:
