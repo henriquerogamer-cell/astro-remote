@@ -19,12 +19,15 @@ typedef struct astro_account_state {
 } astro_account_state_t;
 
 void astro_account_set_debug_fd(int fd);
+
+/* Isolated compatibility API used by legacy callers. */
 int astro_account_get_current(astro_account_state_t *out);
 int astro_account_fake_activate_current(astro_account_state_t *out);
 
-/* remote_worker.c includes remote_worker.h before this header. Keep the
-   temporary debug helpers scoped to that translation unit so the PS5 SDK
-   does not need libc dprintf(). */
+/* Direct API. Call only from the dedicated astrolock process. */
+int astro_account_get_current_direct(astro_account_state_t *out);
+int astro_account_fake_activate_direct(astro_account_state_t *out);
+
 #ifdef ASTRO_REMOTE_WORKER_H
 #include <stdarg.h>
 #include <stdio.h>
