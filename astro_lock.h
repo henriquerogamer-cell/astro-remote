@@ -1,6 +1,9 @@
 #ifndef ASTRO_LOCK_H
 #define ASTRO_LOCK_H
 
+#include <sys/types.h>
+#include <sys/wait.h>
+
 #define ASTRO_LOCK_PORT 45823
 
 int astro_lock_main(void);
