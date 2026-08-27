@@ -15,6 +15,11 @@
 #define ASTRO_REMOTEPLAY_SESSION_PORT 9295
 #define ASTRO_CONNECT_TIMEOUT_MS 250
 #define ASTRO_PROTOCOL_IO_TIMEOUT_MS 700
+#define ASTRO_REG_REMOTEPLAY_ENABLE 1098973184
+
+int sceRegMgrGetInt(int key,int *value);
+int sceRegMgrSetInt(int key,int value);
+int sceRemoteplayInitialize(void *mem,size_t size);
 
 static void set_fd_timeout(int fd,int timeout_ms)
 {
@@ -112,12 +117,22 @@ static int header_value(const char *resp,const char *key,char *out,size_t outsz)
 }
 
 /*
- * Astro does not enable Remote Play anymore. OnionHEN/ActRemoteLink owns the
- * account and system preparation. This function is now a passive readiness
- * check only and never touches RegMgr.
+ * Pairing needs the native Sony RP service enabled. This is intentionally
+ * limited to the one global Remote Play enable key used by LinkDev. Astro
+ * never scans or mutates account slots here; offline account activation
+ * remains Astro Lock's job.
  */
 int astro_remote_ps5_source_enable_remoteplay(void)
 {
+  int enabled=0;
+  int rc=sceRegMgrGetInt(ASTRO_REG_REMOTEPLAY_ENABLE,&enabled);
+  if(rc!=0)return -41;
+  if(enabled!=1){
+    rc=sceRegMgrSetInt(ASTRO_REG_REMOTEPLAY_ENABLE,1);
+    if(rc!=0)return -42;
+  }
+  (void)sceRemoteplayInitialize(NULL,0);
+  usleep(100000);
   return probe_loopback_tcp_timeout(ASTRO_REMOTEPLAY_SESSION_PORT)?0:-40;
 }
 
