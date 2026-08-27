@@ -186,6 +186,20 @@ static int astro_account_fake_activate_raw(astro_account_state_t *out)
     return s.rc;
 }
 
+int astro_account_get_current_direct(astro_account_state_t *out)
+{
+    g_user_service_init_attempted=0;
+    g_user_service_init_rc=0;
+    return astro_account_get_current_raw(out);
+}
+
+int astro_account_fake_activate_direct(astro_account_state_t *out)
+{
+    g_user_service_init_attempted=0;
+    g_user_service_init_rc=0;
+    return astro_account_fake_activate_raw(out);
+}
+
 typedef struct isolated_account_result {
     int rc;
     astro_account_state_t state;
