@@ -9,12 +9,14 @@ int sceUserServiceInitialize(void *);
 int sceUserServiceGetForegroundUser(int *);
 int sceRegMgrGetInt(int, int *);
 int sceRegMgrGetBin(int, void *, size_t);
+int sceRegMgrSetInt(int, int);
 int sceRemoteplayInitialize(void *, size_t);
 int sceRemoteplayGeneratePinCode(uint32_t *);
 int sceRemoteplayConfirmDeviceRegist(int *, int *);
 int sceRemoteplayNotifyPinCodeError(int);
 
 #define PAIRING_TTL_SECONDS 300
+#define SCE_REGMGR_ENT_KEY_REMOTEPLAY_RP_ENABLE 1098973184
 
 static uint32_t reg_num(uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e)
 {
@@ -24,6 +26,7 @@ static uint32_t reg_num(uint32_t a,uint32_t b,uint32_t c,uint32_t d,uint32_t e)
 
 static uint32_t key_user_id(uint32_t i){return reg_num(i,16u,65536u,125829376u,127140096u);}
 static uint32_t key_account_id(uint32_t i){return reg_num(i,16u,65536u,125830400u,127141120u);}
+static uint32_t key_user_rp_enable(uint32_t i){return reg_num(i,16u,65536u,125859841u,127170561u);}
 
 static void base64_8(const uint8_t in[8],char out[24])
 {
@@ -34,41 +37,112 @@ static void base64_8(const uint8_t in[8],char out[24])
 
 static int current_user_and_account(int *user_out,int *idx_out,uint8_t account_id[8])
 {
-    int user=0,rc,idx=-1;int nonzero=0;
-    sceUserServiceInitialize(NULL);
+    int user=0,rc,idx=-1,nonzero=0;
+    (void)sceUserServiceInitialize(NULL);
     rc=sceUserServiceGetForegroundUser(&user);if(rc!=0)return -10;
     for(int i=1;i<=16;i++){int32_t uid=0;rc=sceRegMgrGetInt((int)key_user_id((uint32_t)i),(int *)&uid);if(rc==0&&uid==user){idx=i;break;}}
     if(idx<0)return -11;
     memset(account_id,0,8);rc=sceRegMgrGetBin((int)key_account_id((uint32_t)idx),account_id,8);if(rc!=0)return -12;
     for(int i=0;i<8;i++)if(account_id[i]){nonzero=1;break;}
     if(!nonzero)return -13;
-    if(user_out)*user_out=user;if(idx_out)*idx_out=idx;return 0;
+    if(user_out)*user_out=user;
+    if(idx_out)*idx_out=idx;
+    return 0;
+}
+
+static int enable_remoteplay_for_slot(int idx)
+{
+    int value=0,rc;
+
+    rc=sceRegMgrGetInt(SCE_REGMGR_ENT_KEY_REMOTEPLAY_RP_ENABLE,&value);
+    if(rc!=0||value!=1){
+        rc=sceRegMgrSetInt(SCE_REGMGR_ENT_KEY_REMOTEPLAY_RP_ENABLE,1);
+        if(rc!=0)return -14;
+    }
+
+    value=0;
+    rc=sceRegMgrGetInt((int)key_user_rp_enable((uint32_t)idx),&value);
+    if(rc!=0||value!=1){
+        rc=sceRegMgrSetInt((int)key_user_rp_enable((uint32_t)idx),1);
+        if(rc!=0)return -15;
+    }
+    return 0;
 }
 
 int astro_remote_pairing_prepare(astro_remote_pairing_state_t *out)
 {
-    astro_remote_pairing_state_t s;uint8_t account_id[8];uint32_t pin=0;int rc;
+    astro_remote_pairing_state_t s;
+    uint8_t account_id[8];
+    uint32_t pin=0;
+    int rc,init_rc;
+
     memset(&s,0,sizeof(s));s.rc=-1;
-    rc=current_user_and_account(&s.foreground_user,&s.registry_index,account_id);if(rc!=0){s.rc=rc;if(out)*out=s;return rc;}
+    rc=current_user_and_account(&s.foreground_user,&s.registry_index,account_id);
+    if(rc!=0){s.rc=rc;if(out)*out=s;return rc;}
+
     base64_8(account_id,s.account_id_b64);
-    rc=sceRemoteplayInitialize(NULL,0);if(rc!=0){s.rc=-20;if(out)*out=s;return s.rc;}
+
+    rc=enable_remoteplay_for_slot(s.registry_index);
+    if(rc!=0){s.rc=rc;if(out)*out=s;return rc;}
+
+    /* OnionHEN continues even when the native service reports that it was
+       already initialized. The PIN call is the authoritative result. */
+    init_rc=sceRemoteplayInitialize(NULL,0);
+    (void)init_rc;
+
     (void)sceRemoteplayNotifyPinCodeError(1);
-    rc=sceRemoteplayGeneratePinCode(&pin);if(rc!=0||pin==0){s.rc=-21;if(out)*out=s;return s.rc;}
-    s.pin=pin;s.pin_ready=1;s.pairing_active=1;s.generated_at=time(NULL);s.expires_at=s.generated_at+PAIRING_TTL_SECONDS;s.rc=0;if(out)*out=s;return 0;
+    rc=sceRemoteplayGeneratePinCode(&pin);
+    if(rc!=0||pin==0){s.rc=-21;if(out)*out=s;return s.rc;}
+
+    s.pin=pin;
+    s.pin_ready=1;
+    s.pairing_active=1;
+    s.generated_at=time(NULL);
+    s.expires_at=s.generated_at+PAIRING_TTL_SECONDS;
+    s.rc=0;
+    if(out)*out=s;
+    return 0;
 }
 
 int astro_remote_pairing_poll(astro_remote_pairing_state_t *state)
 {
-    int stat=0,err=0,rc;if(!state||!state->pairing_active)return -1;
-    if(time(NULL)>state->expires_at){state->pairing_active=0;state->pin_ready=0;state->rc=-30;return -30;}
-    rc=sceRemoteplayConfirmDeviceRegist(&stat,&err);if(rc!=0){state->rc=-31;return -31;}
-    state->pair_stat=stat;state->pair_error=err;
-    if(stat==2){state->pairing_complete=1;state->pairing_active=0;state->pin_ready=0;state->rc=0;return 1;}
-    if(stat==3){state->pairing_active=0;state->pin_ready=0;state->rc=-32;return -32;}
-    state->rc=0;return 0;
+    int stat=0,err=0,rc;
+    if(!state||!state->pairing_active)return -1;
+
+    if(time(NULL)>state->expires_at){
+        (void)sceRemoteplayNotifyPinCodeError(1);
+        state->pairing_active=0;
+        state->pin_ready=0;
+        state->rc=-30;
+        return -30;
+    }
+
+    rc=sceRemoteplayConfirmDeviceRegist(&stat,&err);
+    if(rc!=0){state->rc=-31;return -31;}
+
+    state->pair_stat=stat;
+    state->pair_error=err;
+
+    if(stat==2){
+        state->pairing_complete=1;
+        state->pairing_active=0;
+        state->pin_ready=0;
+        state->rc=0;
+        return 1;
+    }
+
+    /* Status 3 is not a terminal API error. OnionHEN keeps polling here.
+       Preserve the status for diagnostics and wait for status 2 or timeout. */
+    state->rc=0;
+    return 0;
 }
 
 int astro_remote_pairing_cancel(astro_remote_pairing_state_t *state)
 {
-    if(!state)return -1;if(state->pairing_active)(void)sceRemoteplayNotifyPinCodeError(1);state->pairing_active=0;state->pin_ready=0;state->rc=0;return 0;
+    if(!state)return -1;
+    if(state->pairing_active)(void)sceRemoteplayNotifyPinCodeError(1);
+    state->pairing_active=0;
+    state->pin_ready=0;
+    state->rc=0;
+    return 0;
 }
