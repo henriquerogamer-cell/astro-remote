@@ -12,10 +12,6 @@
 
 #include "remote_ps5_source.h"
 
-int sceRegMgrGetInt(long, int *);
-int sceRegMgrSetInt(long, int);
-
-#define ASTRO_REMOTEPLAY_ENABLE_KEY 1098973184L
 #define ASTRO_REMOTEPLAY_SESSION_PORT 9295
 #define ASTRO_CONNECT_TIMEOUT_MS 250
 #define ASTRO_PROTOCOL_IO_TIMEOUT_MS 700
@@ -55,8 +51,7 @@ static int connect_loopback_tcp_timeout(int port,int timeout_ms)
   rc=connect(fd,(struct sockaddr*)&a,sizeof(a));
   if(rc!=0){
     if(errno!=EINPROGRESS){close(fd);return -1;}
-    FD_ZERO(&wfds);
-    FD_SET(fd,&wfds);
+    FD_ZERO(&wfds);FD_SET(fd,&wfds);
     tv.tv_sec=timeout_ms/1000;
     tv.tv_usec=(timeout_ms%1000)*1000;
     rc=select(fd+1,NULL,&wfds,NULL,&tv);
@@ -116,44 +111,29 @@ static int header_value(const char *resp,const char *key,char *out,size_t outsz)
   return 0;
 }
 
+/*
+ * Astro does not enable Remote Play anymore. OnionHEN/ActRemoteLink owns the
+ * account and system preparation. This function is now a passive readiness
+ * check only and never touches RegMgr.
+ */
 int astro_remote_ps5_source_enable_remoteplay(void)
 {
-  int value=0;
-  int verify=0;
-  int rc=sceRegMgrGetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,&value);
-  if(rc!=0)return -20;
-
-  if(value!=1){
-    rc=sceRegMgrSetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,1);
-    if(rc!=0)return -21;
-  }
-
-  rc=sceRegMgrGetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,&verify);
-  if(rc!=0)return -22;
-  return verify==1?0:-23;
+  return probe_loopback_tcp_timeout(ASTRO_REMOTEPLAY_SESSION_PORT)?0:-40;
 }
 
 int astro_remote_ps5_source_probe(astro_remote_ps5_source_probe_t *out)
 {
   astro_remote_ps5_source_probe_t p;
-  int enabled=0;
 
   memset(&p,0,sizeof(p));
   p.probed_at=time(NULL);
-
-  /* sceRemoteplayInitialize is intentionally not called here. Public PS5
-     payload research reports that it can block forever outside bigapp/
-     ShellUI context. Astro only performs passive registry/socket probes. */
   p.init_rc=1;
   p.remoteplay_initialized=0;
-  p.reg_rc=sceRegMgrGetInt(ASTRO_REMOTEPLAY_ENABLE_KEY,&enabled);
-  p.remoteplay_enabled=(p.reg_rc==0&&enabled==1);
+  p.reg_rc=0;
   p.tcp_9295_open=probe_loopback_tcp_timeout(ASTRO_REMOTEPLAY_SESSION_PORT);
+  p.remoteplay_enabled=p.tcp_9295_open;
 
   if(out)*out=p;
-
-  if(p.reg_rc!=0)return -20;
-  if(!p.remoteplay_enabled)return -30;
   if(!p.tcp_9295_open)return -40;
   return 0;
 }
@@ -220,8 +200,6 @@ int astro_remote_ps5_protocol_probe(astro_remote_ps5_protocol_probe_t *out)
   nonce[0]='\0';
   if(header_value(resp,"RP-Nonce",nonce,sizeof(nonce))&&nonce[0])p.nonce_present=1;
 
-  /* This probe deliberately uses a non-credential RegistKey. A 4xx response
-     still proves that the PS5 session endpoint and RP protocol answered. */
   p.rc=0;
   if(out)*out=p;
   return 0;
