@@ -30,6 +30,15 @@ static void page_end(char *out, size_t out_sz)
   strncat(out, "<div class='foot'>ASTRO v1 · administração, arquivos, saves e homebrew · Remote Play fica com o Chiaki</div></main></body></html>", out_sz - strlen(out) - 1);
 }
 
+static void send_setup(int fd, const char *error)
+{
+  char page[15000];
+  snprintf(page, sizeof(page),
+"<!doctype html><html lang='pt-BR'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Configurar Astro</title><style>%s .setup{width:min(470px,calc(100%% - 28px));margin:7vh auto;padding:30px;border:1px solid #34404a;border-radius:30px;background:linear-gradient(160deg,#111821,#0b0e13);box-shadow:0 30px 90px #000a}.setup h1{margin:8px 0 8px;letter-spacing:.08em}.setup .first{display:inline-block;color:var(--gold);font-size:10px;font-weight:900;letter-spacing:.14em;border:1px solid #584b32;border-radius:999px;padding:6px 9px}.err{color:#e7a0a7;font-size:12px;padding:10px 12px;border:1px solid #5f3439;border-radius:12px;background:#211216}.hint{font-size:11px;color:#718089;line-height:1.5;margin-top:14px}</style></head><body><section class='setup'><div class='sigil'>✦</div><span class='first'>PRIMEIRO ACESSO</span><h1>Crie o acesso do Astro</h1><p class='muted'>Escolha agora o usuário e a senha que você vai usar para entrar no Astro, tanto dentro de casa quanto remotamente.</p>%s<form method='POST' action='/setup'><div class='field'><label>Usuário</label><input name='username' minlength='3' maxlength='47' required autocomplete='username' placeholder='ex: parca'></div><div class='field'><label>Senha</label><input name='password' type='password' minlength='8' maxlength='95' required autocomplete='new-password'></div><div class='field'><label>Confirmar senha</label><input name='password2' type='password' minlength='8' maxlength='95' required autocomplete='new-password'></div><button type='submit'>CRIAR ACESSO</button></form><p class='hint'>Esse cadastro acontece uma única vez. Depois disso o Astro abre sempre na tela normal de login. As credenciais ficam salvas localmente no PS5.</p></section></body></html>",
+  base_css, error ? error : "");
+  send_text(fd, "200 OK", "text/html; charset=utf-8", NULL, page);
+}
+
 static void send_login(int fd, int bad)
 {
   char page[12000];
