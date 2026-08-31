@@ -46,7 +46,17 @@
 
 #include "astro_v3_profile_core.inc"
 #include "astro_v3_beta_core.inc"
+
+/* Keep the first detector as fallback, while the active detector below reads
+ * a deeper HTTP fingerprint and follows one local redirect. */
+#define auto_web_discover auto_web_discover_legacy
+#define auto_web_lookup auto_web_lookup_legacy
+#define auto_webapps_api auto_webapps_api_legacy
 #include "astro_v3_webdetect.inc"
+#undef auto_web_discover
+#undef auto_web_lookup
+#undef auto_webapps_api
+#include "astro_v3_webdetect_plus.inc"
 
 /* Keep the first beta pages available for reference. */
 #define v3_dashboard v3_dashboard_beta_legacy
@@ -67,7 +77,7 @@
 #include "astro_v3_profile_ui.inc"
 
 /* The existing beta router keeps all authentication/file/save behavior, but
- * Web UI listing and proxy lookup resolve through the auto detector. */
+ * Web UI listing and proxy lookup resolve through the active auto detector. */
 #define beta_webapps_api(fd) auto_webapps_api((fd),target)
 #define beta_web_lookup auto_web_lookup
 #include "astro_v3_beta_router.inc"
