@@ -70,12 +70,19 @@
 /* Active detector adds the real PS5 process table as a second source of truth. */
 #include "astro_v3_webdetect_runtime.inc"
 
-/* Keep the first beta pages available for reference. */
+/* Keep the first beta pages/auth screens available for reference. */
 #define v3_dashboard v3_dashboard_beta_legacy
 #define v3_payloads_page v3_payloads_page_beta_legacy
+#define send_login send_login_beta_legacy
+#define send_setup send_setup_beta_legacy
 #include "astro_v3_beta_ui.inc"
+#undef send_setup
+#undef send_login
 #undef v3_dashboard
 #undef v3_payloads_page
+
+/* Active login and first-use registration share the polished V3 identity. */
+#include "astro_v3_auth_ui.inc"
 
 /* Keep the first polished cards available while the active UI below moves
  * Web access into the payload card itself. */
