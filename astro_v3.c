@@ -93,11 +93,17 @@
 #include "astro_v3_dashboard_runtime.inc"
 
 #include "astro_v3_profile_ui.inc"
+#include "astro_v3_proxy_api_compat.inc"
 
 /* The existing beta router keeps all authentication/file/save behavior, but
- * Web UI listing and proxy lookup resolve through the active auto detector. */
+ * Web UI listing and proxy lookup resolve through the active auto detector.
+ * While compiling the router, make its generic '/api/' native-root test
+ * referer-aware indirectly: proxied SPAs may legitimately own absolute
+ * /api/... paths, while concrete Astro API route checks keep normal behavior. */
 #define beta_webapps_api(fd) auto_webapps_api((fd),target)
 #define beta_web_lookup auto_web_lookup
+#define strncmp astro_proxyaware_strncmp
 #include "astro_v3_beta_router.inc"
+#undef strncmp
 #undef beta_web_lookup
 #undef beta_webapps_api
