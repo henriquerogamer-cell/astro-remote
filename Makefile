@@ -1,4 +1,4 @@
-# Astro Remote - PS5 payload
+# Astro - PS5 administration payload
 
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
@@ -10,14 +10,16 @@ else
 endif
 
 ELF := astro_remote.elf
+SRC := astro_admin.c
+DEPS := astro_part1.inc astro_part2.inc astro_part3.inc astro_part4.inc astro_part5.inc
 
 CFLAGS := -Wall -Wextra -O2 -g
-LDADD := -lSceRegMgr -lSceUserService -lSceRemoteplay
+LDADD :=
 
 all: $(ELF)
 
-$(ELF): main.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LDADD)
+$(ELF): $(SRC) $(DEPS)
+	$(CC) $(CFLAGS) -o $@ $(SRC) $(LDADD)
 
 clean:
 	rm -f $(ELF)
