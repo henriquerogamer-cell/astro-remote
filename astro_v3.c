@@ -46,6 +46,15 @@
 
 #include "astro_v3_profile_core.inc"
 #include "astro_v3_beta_core.inc"
+
+/* Keep the first beta pages available for reference, while the router uses
+ * the polished payload/dashboard implementations below. */
+#define v3_dashboard v3_dashboard_beta_legacy
+#define v3_payloads_page v3_payloads_page_beta_legacy
 #include "astro_v3_beta_ui.inc"
+#undef v3_dashboard
+#undef v3_payloads_page
+
+#include "astro_v3_payload_polish.inc"
 #include "astro_v3_profile_ui.inc"
 #include "astro_v3_beta_router.inc"
