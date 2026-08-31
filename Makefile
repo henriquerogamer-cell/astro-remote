@@ -1,4 +1,4 @@
-# Astro v3 - standalone PS5 administration payload
+# Astro v3 beta - standalone PS5 administration payload
 
 PS5_HOST ?= ps5
 PS5_PORT ?= 9021
@@ -11,7 +11,7 @@ endif
 
 ELF := astro_remote.elf
 SRC := astro_v3.c
-DEPS := astro_part1.inc astro_part2.inc astro_v3_core.inc astro_v3_ui.inc astro_v3_profile_core.inc astro_v3_profile_ui.inc astro_v3_router_profile.inc
+DEPS := astro_part1.inc astro_part2.inc astro_v3_core.inc astro_v3_profile_core.inc astro_v3_beta_core.inc astro_v3_beta_ui.inc astro_v3_profile_ui.inc astro_v3_beta_router.inc
 
 CFLAGS := -Wall -Wextra -O2 -g -lSceUserService
 LDADD :=
