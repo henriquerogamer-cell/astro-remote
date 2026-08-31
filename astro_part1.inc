@@ -1,5 +1,6 @@
 static volatile int g_running = 1;
-static char g_user[MAX_USER] = "astro";
+static int g_auth_ready = 0;
+static char g_user[MAX_USER] = {0};
 static char g_pass[MAX_PASS] = {0};
 static char g_session[MAX_TOKEN] = {0};
 
@@ -67,7 +68,7 @@ static void save_auth(void)
   ensure_dir(ASTRO_DIR);
   FILE *f = fopen(AUTH_FILE, "w");
   if (!f) return;
-  fprintf(f, "user=%s\npass=%s\n", g_user, g_pass);
+  fprintf(f, "setup=1\nuser=%s\npass=%s\n", g_user, g_pass);
   fclose(f);
   chmod(AUTH_FILE, 0600);
 }
@@ -75,13 +76,20 @@ static void save_auth(void)
 static void load_auth(void)
 {
   ensure_dir(ASTRO_DIR);
+  g_auth_ready = 0;
+  g_user[0] = '\0';
+  g_pass[0] = '\0';
+
+  int setup_marker = 0;
   FILE *f = fopen(AUTH_FILE, "r");
   if (f) {
     char line[256];
     while (fgets(line, sizeof(line), f)) {
       char *nl = strpbrk(line, "\r\n");
       if (nl) *nl = '\0';
-      if (strncmp(line, "user=", 5) == 0 && line[5])
+      if (strcmp(line, "setup=1") == 0)
+        setup_marker = 1;
+      else if (strncmp(line, "user=", 5) == 0 && line[5])
         snprintf(g_user, sizeof(g_user), "%s", line + 5);
       else if (strncmp(line, "pass=", 5) == 0 && line[5])
         snprintf(g_pass, sizeof(g_pass), "%s", line + 5);
@@ -89,12 +97,14 @@ static void load_auth(void)
     fclose(f);
   }
 
-  if (!g_pass[0]) {
-    make_secret(g_pass, sizeof(g_pass), 12);
-    save_auth();
-    char msg[256];
-    snprintf(msg, sizeof(msg), "ASTRO pronto | usuario: %s | senha inicial: %s", g_user, g_pass);
-    notify(msg);
+  /* Old builds generated a random password and wrote auth.cfg without
+   * an explicit setup marker. Force those installs through the new,
+   * deliberate first-use registration flow. */
+  if (setup_marker && g_user[0] && g_pass[0])
+    g_auth_ready = 1;
+  else {
+    g_user[0] = '\0';
+    g_pass[0] = '\0';
   }
 
   make_secret(g_session, sizeof(g_session), 40);
