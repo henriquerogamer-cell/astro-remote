@@ -47,8 +47,7 @@
 #include "astro_v3_profile_core.inc"
 #include "astro_v3_beta_core.inc"
 
-/* Keep the first detector as fallback, while the active detector below reads
- * a deeper HTTP fingerprint and follows one local redirect. */
+/* Base detector remains available to the deeper detector. */
 #define auto_web_discover auto_web_discover_legacy
 #define auto_web_lookup auto_web_lookup_legacy
 #define auto_webapps_api auto_webapps_api_legacy
@@ -56,7 +55,20 @@
 #undef auto_web_discover
 #undef auto_web_lookup
 #undef auto_webapps_api
+
+/* Keep the deeper library-only detector as a reusable matching layer. */
+#define auto_payload_match_deep auto_payload_match_deep_legacy
+#define auto_web_discover auto_web_discover_plus_legacy
+#define auto_web_lookup auto_web_lookup_plus_legacy
+#define auto_webapps_api auto_webapps_api_plus_legacy
 #include "astro_v3_webdetect_plus.inc"
+#undef auto_payload_match_deep
+#undef auto_web_discover
+#undef auto_web_lookup
+#undef auto_webapps_api
+
+/* Active detector adds the real PS5 process table as a second source of truth. */
+#include "astro_v3_webdetect_runtime.inc"
 
 /* Keep the first beta pages available for reference. */
 #define v3_dashboard v3_dashboard_beta_legacy
@@ -73,7 +85,13 @@
 #undef v3_dashboard
 #undef v3_payloads_page
 
+/* Keep the Web-card payload library, but replace its Dashboard with the
+ * runtime-aware one that also shows ELFs launched outside Astro. */
+#define v3_dashboard v3_dashboard_webcard_legacy
 #include "astro_v3_payload_webcard.inc"
+#undef v3_dashboard
+#include "astro_v3_dashboard_runtime.inc"
+
 #include "astro_v3_profile_ui.inc"
 
 /* The existing beta router keeps all authentication/file/save behavior, but
