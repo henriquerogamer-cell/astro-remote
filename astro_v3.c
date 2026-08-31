@@ -48,19 +48,26 @@
 #include "astro_v3_beta_core.inc"
 #include "astro_v3_webdetect.inc"
 
-/* Keep the first beta pages available for reference, while the router uses
- * the polished payload/dashboard implementations below. */
+/* Keep the first beta pages available for reference. */
 #define v3_dashboard v3_dashboard_beta_legacy
 #define v3_payloads_page v3_payloads_page_beta_legacy
 #include "astro_v3_beta_ui.inc"
 #undef v3_dashboard
 #undef v3_payloads_page
 
+/* Keep the first polished cards available while the active UI below moves
+ * Web access into the payload card itself. */
+#define v3_dashboard v3_dashboard_polish_legacy
+#define v3_payloads_page v3_payloads_page_polish_legacy
 #include "astro_v3_payload_polish.inc"
+#undef v3_dashboard
+#undef v3_payloads_page
+
+#include "astro_v3_payload_webcard.inc"
 #include "astro_v3_profile_ui.inc"
 
 /* The existing beta router keeps all authentication/file/save behavior, but
- * Web UI listing and proxy lookup now resolve through the auto detector. */
+ * Web UI listing and proxy lookup resolve through the auto detector. */
 #define beta_webapps_api(fd) auto_webapps_api((fd),target)
 #define beta_web_lookup auto_web_lookup
 #include "astro_v3_beta_router.inc"
