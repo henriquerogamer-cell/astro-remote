@@ -38,6 +38,19 @@
 
 #include "astro_part1.inc"
 #include "astro_part2.inc"
+
+/* Keep the original foreground-user helper available for legacy core
+ * functions, then replace it with the v3 profile-aware resolver. */
+#define v3_foreground_user v3_foreground_user_legacy
 #include "astro_v3_core.inc"
+#undef v3_foreground_user
+#include "astro_v3_profile_core.inc"
+
+/* Keep the old profile page compiled for reference while routing /profile
+ * to the richer native editor below. */
+#define v3_profile_page v3_profile_page_legacy
 #include "astro_v3_ui.inc"
-#include "astro_v3_router.inc"
+#undef v3_profile_page
+#include "astro_v3_profile_ui.inc"
+
+#include "astro_v3_router_profile.inc"
