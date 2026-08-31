@@ -13,7 +13,7 @@ ELF := astro_remote.elf
 SRC := astro_v3.c
 DEPS := astro_part1.inc astro_part2.inc astro_v3_core.inc astro_v3_ui.inc astro_v3_router.inc
 
-CFLAGS := -Wall -Wextra -O2 -g
+CFLAGS := -Wall -Wextra -O2 -g -lSceUserService
 LDADD :=
 
 all: $(ELF)
