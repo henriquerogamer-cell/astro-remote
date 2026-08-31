@@ -46,6 +46,7 @@
 
 #include "astro_v3_profile_core.inc"
 #include "astro_v3_beta_core.inc"
+#include "astro_v3_webdetect.inc"
 
 /* Keep the first beta pages available for reference, while the router uses
  * the polished payload/dashboard implementations below. */
@@ -57,4 +58,11 @@
 
 #include "astro_v3_payload_polish.inc"
 #include "astro_v3_profile_ui.inc"
+
+/* The existing beta router keeps all authentication/file/save behavior, but
+ * Web UI listing and proxy lookup now resolve through the auto detector. */
+#define beta_webapps_api(fd) auto_webapps_api((fd),target)
+#define beta_web_lookup auto_web_lookup
 #include "astro_v3_beta_router.inc"
+#undef beta_web_lookup
+#undef beta_webapps_api
