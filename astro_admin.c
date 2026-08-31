@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -27,9 +28,9 @@
 #define PEGASUS_PORT 6970
 #define GARLIC_PORT 8082
 
-
 #include "astro_part1.inc"
 #include "astro_part2.inc"
+#include "astro_managers.inc"
 #include "astro_part3.inc"
 #include "astro_part4.inc"
 #include "astro_part5.inc"
