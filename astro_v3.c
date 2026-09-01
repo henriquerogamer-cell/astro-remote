@@ -74,11 +74,13 @@
 #define v3_dashboard v3_dashboard_beta_legacy
 #define v3_payloads_page v3_payloads_page_beta_legacy
 #define v3_files_page v3_files_page_beta_legacy
+#define v3_saves_page v3_saves_page_beta_legacy
 #define send_login send_login_beta_legacy
 #define send_setup send_setup_beta_legacy
 #include "astro_v3_beta_ui.inc"
 #undef send_setup
 #undef send_login
+#undef v3_saves_page
 #undef v3_files_page
 #undef v3_dashboard
 #undef v3_payloads_page
@@ -93,6 +95,10 @@
 #define send_text explorer_send_text_fixed
 #include "astro_v3_files_explorer.inc"
 #undef send_text
+
+/* Save manager is title-centric: one game card, whole-save download/restore
+ * and cross-account clone through Garlic. Internal sdimg files stay hidden. */
+#include "astro_v3_saves_cards.inc"
 
 /* Keep the first polished cards available while the active UI below moves
  * Web access into the payload card itself. */
@@ -114,13 +120,14 @@
 
 /* The existing beta router keeps all authentication/file/save behavior, but
  * Web UI listing and proxy lookup resolve through the active auto detector.
- * While compiling the router, make its generic '/api/' native-root test
- * referer-aware indirectly: proxied SPAs may legitimately own absolute
- * /api/... paths, while concrete Astro API route checks keep normal behavior. */
+ * The legacy save backup route is also used as the authenticated dispatcher
+ * for whole-title download, restore and clone actions. */
 #define beta_webapps_api(fd) auto_webapps_api((fd),target)
 #define beta_web_lookup auto_web_lookup
+#define v3_save_backup_api v3_save_action_api
 #define strncmp astro_proxyaware_strncmp
 #include "astro_v3_beta_router.inc"
 #undef strncmp
+#undef v3_save_backup_api
 #undef beta_web_lookup
 #undef beta_webapps_api
