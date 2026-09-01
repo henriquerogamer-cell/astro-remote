@@ -93,8 +93,13 @@
 /* Active login and first-use registration share the polished V3 identity. */
 #include "astro_v3_auth_ui.inc"
 
-/* Homebrew uses the HB Store SQLite catalog through an Astro-local API. */
+/* Homebrew uses the HB Store SQLite catalog through an Astro-local API.
+ * PS5 curl has no reliable filesystem CA path, so scope the proven
+ * CAINFO_BLOB workaround only to this module. */
+#include "astro_v3_homebrew_tls.inc"
+#define curl_easy_perform astro_hb_curl_perform
 #include "astro_v3_homebrew.inc"
+#undef curl_easy_perform
 
 /* File manager behaves like a desktop Explorer with a lazy folder tree.
  * The first Explorer cut had one malformed JS statement, so repair the
