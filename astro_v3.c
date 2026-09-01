@@ -96,9 +96,9 @@
 #include "astro_v3_files_explorer.inc"
 #undef send_text
 
-/* Save manager is title-centric. Compile the old merge-style clone and TAR
- * dispatcher under legacy names. The active clone replaces the destination
- * title cleanly through Garlic, while the transport layer exposes ZIP. */
+/* Save manager is title-centric. Compile the first external-engine clone and
+ * TAR dispatcher under legacy names, then replace clone with Astro's own PS5
+ * save engine. ZIP remains the browser backup/restore transport. */
 static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,const char *extra,const char *body);
 #define send_text save_zip_ui_send_text
 #define save_clone_title_api save_clone_title_api_merge_legacy
@@ -107,7 +107,7 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
 #undef v3_save_action_api
 #undef save_clone_title_api
 #undef send_text
-#include "astro_v3_saves_clone_replace.inc"
+#include "astro_v3_saves_native.inc"
 #include "astro_v3_saves_zip.inc"
 
 /* Keep the first polished cards available while the active UI below moves
@@ -131,7 +131,7 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
 /* The existing beta router keeps all authentication/file/save behavior, but
  * Web UI listing and proxy lookup resolve through the active auto detector.
  * The legacy save backup route is used as the authenticated dispatcher for
- * ZIP download, restore and cross-account clone actions. */
+ * ZIP download, restore and native cross-account clone actions. */
 #define beta_webapps_api(fd) auto_webapps_api((fd),target)
 #define beta_web_lookup auto_web_lookup
 #define v3_save_backup_api v3_save_action_api
