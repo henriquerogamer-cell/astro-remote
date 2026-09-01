@@ -57,6 +57,7 @@ static void v3_handle_client(int fd)
   if(!strncmp(target,"/api/webapps",12)){beta_webapps_api(fd);goto done;}
   if(!strncmp(target,"/api/title/icon",15)){beta_title_icon_api(fd,target);goto done;}
   if(!strncmp(target,"/api/title/meta",15)){beta_title_meta_api(fd,target);goto done;}
+  if(!strncmp(target,"/api/homebrew",13)){v3_homebrew_api(fd,target);goto done;}
 
   if(!strncmp(target,"/api/profile/avatar/prepare",27)&&!strcmp(method,"POST")){v3_profile_avatar_prepare_api(fd);goto done;}
   if(!strncmp(target,"/api/profile/avatar/upload",26)&&!strcmp(method,"POST")){v3_profile_avatar_upload_api(fd,target,req,req_len,header_len);goto done;}
@@ -94,6 +95,6 @@ done:free(req);close(fd);
 
 int main(void)
 {
-  load_auth();v3_mkdirs(ASTRO_DIR);v3_mkdirs(ASTRO_PAYLOAD_DIR);v3_mkdirs(ASTRO_BACKUP_DIR);v3_mkdirs(ASTRO_PROFILE_BACKUP_DIR);v3_migrate_payloads_once();beta_seed_sources();beta_seed_webapps();
+  astro_set_process_name();load_auth();v3_mkdirs(ASTRO_DIR);v3_mkdirs(ASTRO_PAYLOAD_DIR);v3_mkdirs(ASTRO_BACKUP_DIR);v3_mkdirs(ASTRO_PROFILE_BACKUP_DIR);v3_migrate_payloads_once();beta_seed_sources();beta_seed_webapps();
   int s=socket(AF_INET,SOCK_STREAM,0);if(s<0)return 1;int yes=1;setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(yes));struct sockaddr_in a;memset(&a,0,sizeof(a));a.sin_family=AF_INET;a.sin_addr.s_addr=htonl(INADDR_ANY);a.sin_port=htons(ASTRO_PORT);if(bind(s,(struct sockaddr*)&a,sizeof(a))!=0){close(s);notify("ASTRO: falha ao abrir porta 45821");return 2;}if(listen(s,16)!=0){close(s);return 3;}notify(g_auth_ready?"ASTRO v3 beta online | 45821":"ASTRO v3 beta | crie o primeiro acesso");while(g_running){struct sockaddr_in c;socklen_t cl=sizeof(c);int cfd=accept(s,(struct sockaddr*)&c,&cl);if(cfd<0){if(errno==EINTR)continue;break;}v3_handle_client(cfd);}close(s);return 0;
 }
