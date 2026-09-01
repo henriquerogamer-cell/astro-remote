@@ -86,8 +86,13 @@
 /* Active login and first-use registration share the polished V3 identity. */
 #include "astro_v3_auth_ui.inc"
 
-/* File manager now behaves like a desktop Explorer with a lazy folder tree. */
+/* File manager behaves like a desktop Explorer with a lazy folder tree.
+ * The first Explorer cut had one malformed JS statement, so repair the
+ * generated page before it leaves the PS5 HTTP server. */
+#include "astro_v3_files_jsfix.inc"
+#define send_text explorer_send_text_fixed
 #include "astro_v3_files_explorer.inc"
+#undef send_text
 
 /* Keep the first polished cards available while the active UI below moves
  * Web access into the payload card itself. */
