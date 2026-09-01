@@ -96,15 +96,18 @@
 #include "astro_v3_files_explorer.inc"
 #undef send_text
 
-/* Save manager is title-centric. Keep its card implementation, but compile
- * the old TAR action dispatcher under a legacy name and rewrite the UI to ZIP.
- * The active ZIP transport is included immediately after it. */
+/* Save manager is title-centric. Compile the old merge-style clone and TAR
+ * dispatcher under legacy names. The active clone replaces the destination
+ * title cleanly through Garlic, while the transport layer exposes ZIP. */
 static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,const char *extra,const char *body);
 #define send_text save_zip_ui_send_text
+#define save_clone_title_api save_clone_title_api_merge_legacy
 #define v3_save_action_api v3_save_action_api_tar_legacy
 #include "astro_v3_saves_cards.inc"
 #undef v3_save_action_api
+#undef save_clone_title_api
 #undef send_text
+#include "astro_v3_saves_clone_replace.inc"
 #include "astro_v3_saves_zip.inc"
 
 /* Keep the first polished cards available while the active UI below moves
