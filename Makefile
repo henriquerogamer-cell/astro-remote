@@ -11,10 +11,10 @@ endif
 
 ELF := astro_remote.elf
 SRC := astro_v3.c
-DEPS := astro_part1.inc astro_part2.inc astro_v3_core.inc astro_v3_profile_core.inc astro_v3_beta_core.inc astro_v3_webdetect.inc astro_v3_webdetect_plus.inc astro_v3_webdetect_runtime.inc astro_v3_beta_ui.inc astro_v3_auth_ui.inc astro_v3_files_jsfix.inc astro_v3_files_explorer.inc astro_v3_saves_cards.inc astro_v3_saves_clone_replace.inc astro_v3_saves_zip.inc astro_v3_payload_polish.inc astro_v3_payload_webcard.inc astro_v3_dashboard_runtime.inc astro_v3_profile_ui.inc astro_v3_proxy_api_compat.inc astro_v3_beta_router.inc
+DEPS := astro_part1.inc astro_part2.inc astro_v3_core.inc astro_v3_profile_core.inc astro_v3_beta_core.inc astro_v3_webdetect.inc astro_v3_webdetect_plus.inc astro_v3_webdetect_runtime.inc astro_v3_beta_ui.inc astro_v3_auth_ui.inc astro_v3_files_jsfix.inc astro_v3_files_explorer.inc astro_v3_saves_cards.inc astro_v3_saves_native.inc astro_v3_saves_zip.inc astro_v3_payload_polish.inc astro_v3_payload_webcard.inc astro_v3_dashboard_runtime.inc astro_v3_profile_ui.inc astro_v3_proxy_api_compat.inc astro_v3_beta_router.inc
 
-CFLAGS := -Wall -Wextra -O2 -g -lSceUserService
-LDADD :=
+CFLAGS := -Wall -Wextra -O2 -g -D_BSD_SOURCE -std=gnu11
+LDADD := -lsqlite3 -lkernel_sys -lkernel -lSceSystemService -lSceUserService -lSceFsInternalForVsh -lSceRegMgr
 
 all: $(ELF)
 
