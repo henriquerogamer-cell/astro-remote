@@ -96,9 +96,9 @@
 #include "astro_v3_files_explorer.inc"
 #undef send_text
 
-/* Save manager is title-centric. Compile the first external-engine clone and
- * TAR dispatcher under legacy names, then replace clone with Astro's own PS5
- * save engine. ZIP remains the browser backup/restore transport. */
+/* Save manager is title-centric. The first external-engine clone stays legacy.
+ * Native V1 remains as a reusable helper layer, but its clone entry point is
+ * renamed; V2 is the active verified cross-account clone engine. */
 static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,const char *extra,const char *body);
 #define send_text save_zip_ui_send_text
 #define save_clone_title_api save_clone_title_api_merge_legacy
@@ -107,7 +107,10 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
 #undef v3_save_action_api
 #undef save_clone_title_api
 #undef send_text
+#define save_clone_title_api save_clone_title_api_native_v1_legacy
 #include "astro_v3_saves_native.inc"
+#undef save_clone_title_api
+#include "astro_v3_saves_native_v2.inc"
 #include "astro_v3_saves_zip.inc"
 
 /* Keep the first polished cards available while the active UI below moves
