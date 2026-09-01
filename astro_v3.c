@@ -22,6 +22,8 @@
 #include <arpa/inet.h>
 
 #include <ps5/kernel.h>
+#include <sqlite3.h>
+#include <curl/curl.h>
 
 #define ASTRO_PORT 45821
 #define REQ_BUF 65536
@@ -38,6 +40,7 @@
 
 #include "astro_part1.inc"
 #include "astro_part2.inc"
+#include "astro_v3_identity.inc"
 
 /* Legacy core keeps its original foreground resolver internally. */
 #define v3_foreground_user v3_foreground_user_legacy
@@ -75,11 +78,13 @@
 #define v3_payloads_page v3_payloads_page_beta_legacy
 #define v3_files_page v3_files_page_beta_legacy
 #define v3_saves_page v3_saves_page_beta_legacy
+#define v3_homebrew_page v3_homebrew_page_beta_legacy
 #define send_login send_login_beta_legacy
 #define send_setup send_setup_beta_legacy
 #include "astro_v3_beta_ui.inc"
 #undef send_setup
 #undef send_login
+#undef v3_homebrew_page
 #undef v3_saves_page
 #undef v3_files_page
 #undef v3_dashboard
@@ -87,6 +92,9 @@
 
 /* Active login and first-use registration share the polished V3 identity. */
 #include "astro_v3_auth_ui.inc"
+
+/* Homebrew uses the HB Store SQLite catalog through an Astro-local API. */
+#include "astro_v3_homebrew.inc"
 
 /* File manager behaves like a desktop Explorer with a lazy folder tree.
  * The first Explorer cut had one malformed JS statement, so repair the
