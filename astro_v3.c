@@ -93,12 +93,19 @@
 /* Active login and first-use registration share the polished V3 identity. */
 #include "astro_v3_auth_ui.inc"
 
-/* Homebrew uses the HB Store SQLite catalog through an Astro-local API.
- * PS5 curl has no reliable filesystem CA path, so scope the proven
- * CAINFO_BLOB workaround only to this module. */
+/* Keep the obsolete store.db implementation available only for reference.
+ * Active Homebrew below reads the current PKG-Zone PS5 web catalog because
+ * the legacy api.pkg-zone.com hostname no longer resolves reliably. */
 #include "astro_v3_homebrew_tls.inc"
+#define v3_homebrew_api v3_homebrew_api_storedb_legacy
+#define v3_homebrew_page v3_homebrew_page_storedb_legacy
 #define curl_easy_perform astro_hb_curl_perform
 #include "astro_v3_homebrew.inc"
+#undef curl_easy_perform
+#undef v3_homebrew_page
+#undef v3_homebrew_api
+#define curl_easy_perform astro_hb_curl_perform
+#include "astro_v3_homebrew_web.inc"
 #undef curl_easy_perform
 
 /* File manager behaves like a desktop Explorer with a lazy folder tree.
