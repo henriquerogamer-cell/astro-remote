@@ -107,6 +107,7 @@
 #define curl_easy_perform astro_hb_curl_perform
 #include "astro_v3_homebrew_web.inc"
 #undef curl_easy_perform
+#include "astro_v3_pkg_installer.inc"
 
 /* File manager behaves like a desktop Explorer with a lazy folder tree.
  * The first Explorer cut had one malformed JS statement, so repair the
