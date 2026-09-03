@@ -68,6 +68,8 @@ static void v3_handle_client(int fd)
   if(!strncmp(target,"/api/status",11)){v3_status_api(fd);goto done;}
   if(!strncmp(target,"/api/processes",14)){v3_processes_api(fd);goto done;}
   if(!strncmp(target,"/api/storage",12)){v3_storage_api(fd);goto done;}
+  if(!strncmp(target,"/api/homebrew/install",21)&&!strcmp(method,"POST")){v3_pkg_install_api(fd,target);goto done;}
+  if(!strncmp(target,"/api/homebrew/status",20)){v3_pkg_status_api(fd);goto done;}
   if(!strncmp(target,"/api/payloads/upload",20)&&!strcmp(method,"POST")){v3_payload_upload_api(fd,target,req,req_len,header_len);goto done;}
   if(!strncmp(target,"/api/payloads/launch",20)&&!strcmp(method,"POST")){v3_payload_launch_api(fd,target);goto done;}
   if(!strncmp(target,"/api/payloads/stop",18)&&!strcmp(method,"POST")){v3_payload_stop_api(fd,target);goto done;}
