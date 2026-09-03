@@ -1,6 +1,8 @@
 /* Native PS5 package installer for Astro.
- * Uses the same AppInstUtil path as Debug Settings. The install source is a
- * PKG-Zone URL selected from the authenticated Astro UI; arbitrary hosts and
+ * Uses AppInstUtil directly. On recent firmware this is not equivalent to
+ * Debug Settings: the system Package Installer can accept packages that the
+ * public AppInstUtil/PlayGo route rejects. The install source is a PKG-Zone
+ * URL selected from the authenticated Astro UI; arbitrary hosts and
  * paths are rejected before the system service is called.
  */
 
@@ -79,6 +81,7 @@ static const char *astro_pkg_error_hint(int e)
     case 0x80B2100E:return "O PKG exige outra versão do sistema.";
     case 0x80B21013:return "Já existe uma versão mais nova instalada.";
     case 0x80B21018:return "O instalador já está ocupado.";
+    case 0x80B2116F:return "Seu firmware bloqueou a instalação direta (AppInstUtil/PlayGo). No FW 12.60, use Configurações > Sistema > Debug Settings > Game > Package Installer; não é falha do download.";
     default:return "O instalador do PS5 recusou o pacote.";
   }
 }
