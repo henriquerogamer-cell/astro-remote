@@ -1,4 +1,5 @@
 /* FW 12-safe flow: download PKGs to a writable USB for Debug Settings. */
+#include <pthread.h>
 typedef struct { pthread_mutex_t lock;int state;unsigned long long now,total;char name[192],url[512],path[512],detail[256]; } astro_pkg_dl_t;
 static astro_pkg_dl_t astro_pkg_dl={.lock=PTHREAD_MUTEX_INITIALIZER};
 
