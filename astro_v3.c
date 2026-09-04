@@ -48,7 +48,15 @@
 #undef v3_foreground_user
 
 #include "astro_v3_profile_core.inc"
+
+/* Keep the original source registry helpers as a fallback. The active source
+ * API below also exposes the live Astro payload catalog. */
+#define beta_sources_api beta_sources_api_legacy
+#define beta_source_add_api beta_source_add_api_legacy
 #include "astro_v3_beta_core.inc"
+#undef beta_source_add_api
+#undef beta_sources_api
+
 #include "astro_v3_autoload.inc"
 
 /* Base detector remains available to the deeper detector. */
@@ -98,6 +106,10 @@
  * Active Homebrew below reads the current PKG-Zone PS5 web catalog because
  * the legacy api.pkg-zone.com hostname no longer resolves reliably. */
 #include "astro_v3_homebrew_tls.inc"
+
+/* Live community payload metadata + direct upstream install/update support. */
+#include "astro_v3_payload_catalog.inc"
+
 #define v3_homebrew_api v3_homebrew_api_storedb_legacy
 #define v3_homebrew_page v3_homebrew_page_storedb_legacy
 #define curl_easy_perform astro_hb_curl_perform
@@ -145,9 +157,12 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
 #undef v3_payloads_page
 
 /* Keep the Web-card payload library, but replace its Dashboard with the
- * runtime-aware one that also shows ELFs launched outside Astro. */
+ * runtime-aware one that also shows ELFs launched outside Astro. Catalog UI
+ * is injected only into the active Payloads page at response time. */
 #define v3_dashboard v3_dashboard_webcard_legacy
+#define send_text astro_catalog_send_text
 #include "astro_v3_payload_webcard.inc"
+#undef send_text
 #undef v3_dashboard
 #include "astro_v3_dashboard_runtime.inc"
 
