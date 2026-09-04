@@ -49,6 +49,7 @@
 
 #include "astro_v3_profile_core.inc"
 #include "astro_v3_beta_core.inc"
+#include "astro_v3_autoload.inc"
 
 /* Base detector remains available to the deeper detector. */
 #define auto_web_discover auto_web_discover_legacy
