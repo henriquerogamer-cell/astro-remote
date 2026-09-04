@@ -109,6 +109,7 @@
 
 /* Live community payload metadata + direct upstream install/update support. */
 #include "astro_v3_payload_catalog.inc"
+#include "astro_v3_catalog_clickfix.inc"
 
 #define v3_homebrew_api v3_homebrew_api_storedb_legacy
 #define v3_homebrew_page v3_homebrew_page_storedb_legacy
@@ -160,7 +161,7 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
  * runtime-aware one that also shows ELFs launched outside Astro. Catalog UI
  * is injected only into the active Payloads page at response time. */
 #define v3_dashboard v3_dashboard_webcard_legacy
-#define send_text astro_catalog_send_text
+#define send_text astro_catalog_send_text_fixed
 #include "astro_v3_payload_webcard.inc"
 #undef send_text
 #undef v3_dashboard
