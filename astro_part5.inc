@@ -1,3 +1,5 @@
+#include "astro_shadowmount.inc"
+
 typedef struct service_def { const char *name; const char *prefix; int port; } service_def_t;
 static const service_def_t SERVICES[] = {
   {"prospero","/p/prospero",PROSPERO_PORT},
@@ -51,9 +53,13 @@ static void handle_client(int fd)
   if(!strcmp(target,"/saves")){send_saves_page(fd);goto done;}
   if(!strcmp(target,"/homebrew")){send_homebrew_page(fd);goto done;}
   if(!strcmp(target,"/services")){send_services(fd);goto done;}
-  if(!strcmp(target,"/settings")){send_settings_page(fd,NULL);goto done;}
+  if(!strcmp(target,"/settings")){send_settings_plus_page(fd,NULL);goto done;}
 
   if(!strncmp(target,"/api/status",11)){send_status_api(fd);goto done;}
+  if(!strncmp(target,"/api/shadowmount/paths",22)&&!strcmp(method,"GET")){shadow_paths_api(fd);goto done;}
+  if(!strncmp(target,"/api/shadowmount/add",20)&&!strcmp(method,"POST")){shadow_add_api(fd,target);goto done;}
+  if(!strncmp(target,"/api/shadowmount/remove",23)&&!strcmp(method,"POST")){shadow_remove_api(fd,target);goto done;}
+  if(!strncmp(target,"/api/shadowmount/reset",22)&&!strcmp(method,"POST")){shadow_reset_api(fd);goto done;}
   if(!strncmp(target,"/api/storage",12)){mgr_storage_api(fd);goto done;}
   if(!strncmp(target,"/api/payloads/list",18)){mgr_payload_list_api(fd);goto done;}
   if(!strncmp(target,"/api/payloads/launch",20)&&!strcmp(method,"POST")){mgr_payload_launch_api(fd,target);goto done;}
@@ -70,7 +76,7 @@ static void handle_client(int fd)
   if(!strncmp(target,"/api/saves/backup",17)&&!strcmp(method,"POST")){mgr_backup_save_api(fd,target);goto done;}
   if(!strncmp(target,"/api/saves/clone",16)&&!strcmp(method,"POST")){mgr_clone_save_api(fd,target);goto done;}
 
-  if(!strcmp(target,"/settings/password")&&!strcmp(method,"POST")){char p[256]={0};form_value(body,"password",p,sizeof(p));if(strlen(p)>=8&&strlen(p)<MAX_PASS){snprintf(g_pass,sizeof(g_pass),"%s",p);save_auth();make_secret(g_session,sizeof(g_session),40);send_text(fd,"302 Found","text/plain","Set-Cookie: astro_session=; Max-Age=0; Path=/\r\nLocation: /login\r\n","");}else send_settings_page(fd,"<div class='notice bad'>A senha precisa ter entre 8 e 95 caracteres.</div>");goto done;}
+  if(!strcmp(target,"/settings/password")&&!strcmp(method,"POST")){char p[256]={0};form_value(body,"password",p,sizeof(p));if(strlen(p)>=8&&strlen(p)<MAX_PASS){snprintf(g_pass,sizeof(g_pass),"%s",p);save_auth();make_secret(g_session,sizeof(g_session),40);send_text(fd,"302 Found","text/plain","Set-Cookie: astro_session=; Max-Age=0; Path=/\r\nLocation: /login\r\n","");}else send_settings_plus_page(fd,"<div class='notice bad'>A senha precisa ter entre 8 e 95 caracteres.</div>");goto done;}
   if(!strcmp(target,"/shutdown")&&!strcmp(method,"POST")){g_running=0;notify("ASTRO encerrado");send_text(fd,"200 OK","text/html; charset=utf-8",NULL,"<html><body style='background:#0b0f14;color:#eee;font-family:Arial;display:grid;place-items:center;min-height:100vh'><h1>Astro encerrado.</h1></body></html>");goto done;}
 
   const char *up=NULL;const service_def_t *svc=service_from_target(target,&up);if(svc){proxy_request(fd,req,req_len,header_len,svc,up);goto done;}
