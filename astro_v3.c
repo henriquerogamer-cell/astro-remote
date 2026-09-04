@@ -42,9 +42,12 @@
 #include "astro_part2.inc"
 #include "astro_v3_identity.inc"
 
-/* Legacy core keeps its original foreground resolver internally. */
+/* Legacy core keeps its original foreground resolver and process list API
+ * available while the active process-control layer extends them below. */
 #define v3_foreground_user v3_foreground_user_legacy
+#define v3_processes_api v3_processes_api_legacy
 #include "astro_v3_core.inc"
+#undef v3_processes_api
 #undef v3_foreground_user
 
 #include "astro_v3_profile_core.inc"
@@ -88,16 +91,22 @@
 #define v3_files_page v3_files_page_beta_legacy
 #define v3_saves_page v3_saves_page_beta_legacy
 #define v3_homebrew_page v3_homebrew_page_beta_legacy
+#define v3_processes_page v3_processes_page_beta_legacy
 #define send_login send_login_beta_legacy
 #define send_setup send_setup_beta_legacy
 #include "astro_v3_beta_ui.inc"
 #undef send_setup
 #undef send_login
+#undef v3_processes_page
 #undef v3_homebrew_page
 #undef v3_saves_page
 #undef v3_files_page
 #undef v3_dashboard
 #undef v3_payloads_page
+
+/* Active process page can terminate a process gracefully and optionally force
+ * it after a second confirmation, while protecting Astro itself and PID 1. */
+#include "astro_v3_process_control.inc"
 
 /* Active login and first-use registration share the polished V3 identity. */
 #include "astro_v3_auth_ui.inc"
@@ -172,14 +181,15 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
 
 /* The existing beta router keeps all authentication/file/save behavior, but
  * Web UI listing and proxy lookup resolve through the active auto detector.
- * The legacy save backup route is used as the authenticated dispatcher for
- * ZIP download, restore and native cross-account clone actions. */
+ * Process API routing is extended here so /terminate shares the same auth. */
 #define beta_webapps_api(fd) auto_webapps_api((fd),target)
 #define beta_web_lookup auto_web_lookup
 #define v3_save_backup_api v3_save_action_api
+#define v3_processes_api(fd) astro_processes_router((fd),target,method)
 #define strncmp astro_proxyaware_strncmp
 #include "astro_v3_beta_router.inc"
 #undef strncmp
+#undef v3_processes_api
 #undef v3_save_backup_api
 #undef beta_web_lookup
 #undef beta_webapps_api
