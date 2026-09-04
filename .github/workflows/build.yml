@@ -1,4 +1,4 @@
-name: Astro Remote Build
+name: Astro Remote Build and Release
 
 on:
   push:
@@ -6,6 +6,13 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: astro-remote-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -30,10 +37,27 @@ jobs:
           make clean
           make
           file astro_remote.elf
+          sha256sum astro_remote.elf > astro_remote.elf.sha256
 
-      - name: Upload ELF
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: astro_remote
-          path: astro_remote.elf
+          path: |
+            astro_remote.elf
+            astro_remote.elf.sha256
           if-no-files-found: error
+
+      - name: Publish automatic release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: v3.0.${{ github.run_number }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            astro_remote.elf \
+            astro_remote.elf.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "Astro Remote $RELEASE_TAG" \
+            --generate-notes \
+            --latest
