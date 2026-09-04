@@ -74,6 +74,7 @@ static void v3_handle_client(int fd)
   if(!strncmp(target,"/api/payloads/launch",20)&&!strcmp(method,"POST")){v3_payload_launch_api(fd,target);goto done;}
   if(!strncmp(target,"/api/payloads/stop",18)&&!strcmp(method,"POST")){v3_payload_stop_api(fd,target);goto done;}
   if(!strncmp(target,"/api/payloads/favorite",22)&&!strcmp(method,"POST")){v3_payload_favorite_api(fd,target);goto done;}
+  if(!strncmp(target,"/api/autoload",13)){v3_autoload_api(fd,target,method);goto done;}
   if(!strncmp(target,"/api/payloads",13)){v3_payload_list_api(fd);goto done;}
   if(!strncmp(target,"/api/files/download",19)){v3_file_download(fd,target);goto done;}
   if(!strncmp(target,"/api/files/upload",17)&&!strcmp(method,"POST")){v3_file_upload_api(fd,target,req,req_len,header_len);goto done;}
