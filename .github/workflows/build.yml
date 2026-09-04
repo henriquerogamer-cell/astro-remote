@@ -1,5 +1,5 @@
 name: Astro Remote Build and Release
-# Builds the complete Astro launcher-enabled branch.
+# Builds the complete Astro launcher and autoload-enabled branch.
 
 on:
   push:
