@@ -1,0 +1,4 @@
+/* Start starred payloads in order after Astro and the local ELF loader are up. */
+#include <pthread.h>
+static void *astro_autoload_worker(void *unused){(void)unused;for(int i=0;i<30&&!v3_loader_port();i++)sleep(1);if(!v3_loader_port()){notify("ASTRO autoload: ELF loader offline");return NULL;}FILE *f=fopen(ASTRO_FAVORITES_FILE,"r");if(!f)return NULL;char name[512];int ok=0,fail=0;while(fgets(name,sizeof(name),f)){char *nl=strpbrk(name,"\r\n");if(nl)*nl=0;if(!*name||strchr(name,'/')||strchr(name,'\\')||v3_payload_pid(name))continue;char path[1024];snprintf(path,sizeof(path),"%s/%s",ASTRO_PAYLOAD_DIR,name);int port=0;if(v3_send_payload(path,&port)==0)ok++;else fail++;sleep(3);}fclose(f);char msg[128];snprintf(msg,sizeof(msg),"ASTRO autoload: %d iniciado(s)%s",ok,fail?" · falha detectada":"");notify(msg);return NULL;}
+static void astro_autoload_start(void){pthread_t th;if(!pthread_create(&th,NULL,astro_autoload_worker,NULL))pthread_detach(th);}
