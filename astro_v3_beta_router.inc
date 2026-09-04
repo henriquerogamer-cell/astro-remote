@@ -1,5 +1,12 @@
 static int v3_valid_setup_username(const char*u){size_t n=u?strlen(u):0;if(n<3||n>=MAX_USER)return 0;for(size_t i=0;i<n;i++){unsigned char c=(unsigned char)u[i];if(!(isalnum(c)||c=='_'||c=='-'||c=='.'))return 0;}return 1;}
 
+static int v3_local_client(int fd)
+{
+  struct sockaddr_in peer;socklen_t plen=sizeof(peer);memset(&peer,0,sizeof(peer));
+  if(getpeername(fd,(struct sockaddr*)&peer,&plen)!=0||peer.sin_family!=AF_INET)return 0;
+  return (ntohl(peer.sin_addr.s_addr)&0xff000000U)==0x7f000000U;
+}
+
 static int beta_web_target(const char*target,char*slug,size_t ssz,const char**upath)
 {
   if(strncmp(target,"/web/",5))return 0;const char*p=target+5,*slash=strchr(p,'/');if(!slash)return 0;size_t n=(size_t)(slash-p);if(n<1||n>=ssz)return 0;memcpy(slug,p,n);slug[n]=0;if(!beta_safe_slug(slug))return 0;*upath=slash;return 1;
@@ -23,6 +30,7 @@ static void beta_proxy_web(int fd,const char*req,size_t req_len,size_t header_le
 
 static void v3_handle_client(int fd)
 {
+  int local=v3_local_client(fd);
   char*req=malloc(REQ_BUF);if(!req){close(fd);return;}size_t req_len=0,header_len=0;if(read_request(fd,req,REQ_BUF,&req_len,&header_len)!=0){free(req);close(fd);return;}char method[16],target[4096];if(parse_request_line(req,method,sizeof(method),target,sizeof(target))!=0){free(req);close(fd);return;}char*body=req+header_len;size_t body_in=req_len>header_len?req_len-header_len:0;long clen=content_length(req);
   if(clen>0&&(long)body_in<clen&&clen<32000){size_t want=(size_t)clen-body_in;while(want&&req_len+want+1<REQ_BUF){ssize_t n=recv(fd,req+req_len,want,0);if(n<=0)break;req_len+=(size_t)n;body_in+=(size_t)n;want-=(size_t)n;}req[req_len]=0;body=req+header_len;}
 
@@ -32,10 +40,10 @@ static void v3_handle_client(int fd)
     redirect_to(fd,"/setup");goto done;
   }
 
-  if(!strcmp(target,"/login")&&!strcmp(method,"GET")){send_login(fd,0);goto done;}
-  if(!strcmp(target,"/login")&&!strcmp(method,"POST")){char u[128]={0},p[256]={0};form_value(body,"username",u,sizeof(u));form_value(body,"password",p,sizeof(p));if(!strcmp(u,g_user)&&!strcmp(p,g_pass)){char h[256];snprintf(h,sizeof(h),"Set-Cookie: astro_session=%s; Path=/; HttpOnly; SameSite=Strict\r\nLocation: /dashboard\r\n",g_session);send_text(fd,"302 Found","text/plain",h,"");}else send_login(fd,1);goto done;}
+  if(!strcmp(target,"/login")&&!strcmp(method,"GET")){if(local)redirect_to(fd,"/dashboard");else send_login(fd,0);goto done;}
+  if(!strcmp(target,"/login")&&!strcmp(method,"POST")){if(local){redirect_to(fd,"/dashboard");goto done;}char u[128]={0},p[256]={0};form_value(body,"username",u,sizeof(u));form_value(body,"password",p,sizeof(p));if(!strcmp(u,g_user)&&!strcmp(p,g_pass)){char h[256];snprintf(h,sizeof(h),"Set-Cookie: astro_session=%s; Path=/; HttpOnly; SameSite=Strict\r\nLocation: /dashboard\r\n",g_session);send_text(fd,"302 Found","text/plain",h,"");}else send_login(fd,1);goto done;}
   if(!strcmp(target,"/logout")){send_text(fd,"302 Found","text/plain","Set-Cookie: astro_session=; Max-Age=0; Path=/\r\nLocation: /login\r\n","");goto done;}
-  if(!logged_in(req)){redirect_to(fd,"/login");goto done;}
+  if(!local&&!logged_in(req)){redirect_to(fd,"/login");goto done;}
 
   char wslug[96];const char*wpath=NULL;if(beta_web_target(target,wslug,sizeof(wslug),&wpath)){beta_proxy_web(fd,req,req_len,header_len,wslug,wpath);goto done;}
   if(!beta_is_native_target(target)&&beta_web_referer(req,wslug,sizeof(wslug))){beta_proxy_web(fd,req,req_len,header_len,wslug,target);goto done;}
