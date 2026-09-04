@@ -92,17 +92,23 @@
 #define v3_saves_page v3_saves_page_beta_legacy
 #define v3_homebrew_page v3_homebrew_page_beta_legacy
 #define v3_processes_page v3_processes_page_beta_legacy
+#define v3_settings_page v3_settings_page_beta_legacy
 #define send_login send_login_beta_legacy
 #define send_setup send_setup_beta_legacy
 #include "astro_v3_beta_ui.inc"
 #undef send_setup
 #undef send_login
+#undef v3_settings_page
 #undef v3_processes_page
 #undef v3_homebrew_page
 #undef v3_saves_page
 #undef v3_files_page
 #undef v3_dashboard
 #undef v3_payloads_page
+
+/* Active settings page adds ShadowMountPlus scan-path management while keeping
+ * the existing V3 security/server controls. */
+#include "astro_v3_shadowmount_ui.inc"
 
 /* Active process page can terminate a process gracefully and optionally force
  * it after a second confirmation, while protecting Astro itself and PID 1. */
