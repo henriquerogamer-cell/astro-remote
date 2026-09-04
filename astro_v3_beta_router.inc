@@ -48,6 +48,7 @@ static void v3_handle_client(int fd)
   char wslug[96];const char*wpath=NULL;if(beta_web_target(target,wslug,sizeof(wslug),&wpath)){beta_proxy_web(fd,req,req_len,header_len,wslug,wpath);goto done;}
   if(!beta_is_native_target(target)&&beta_web_referer(req,wslug,sizeof(wslug))){beta_proxy_web(fd,req,req_len,header_len,wslug,target);goto done;}
 
+  if(!strcmp(target,"/home")){redirect_to(fd,"/dashboard");goto done;}
   if(!strcmp(target,"/")){redirect_to(fd,"/dashboard");goto done;}
   if(!strcmp(target,"/dashboard")){v3_dashboard(fd);goto done;}
   if(!strcmp(target,"/payloads")){v3_payloads_page(fd);goto done;}
