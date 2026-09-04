@@ -7,9 +7,9 @@
  *
  * Keep the catalog backend untouched and repair only the generated page.
  */
-static void astro_catalog_repair_js(char *page)
+static void astro_catalog_repair_js(char *page,size_t cap)
 {
-  if(!page)return;
+  if(!page||!cap)return;
   char *a=strstr(page,"const CE=s=>");
   char *b=a?strstr(a,"function catDev"):NULL;
   if(!a||!b||b<=a)return;
@@ -17,10 +17,10 @@ static void astro_catalog_repair_js(char *page)
   /* Deliberately avoid a literal double-quote inside this JavaScript helper.
    * String.fromCharCode(34) keeps the C -> JS -> HTML escaping layers simple. */
   const char *fixed="function CE(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(new RegExp(String.fromCharCode(34),'g'),'&quot;').replace(/'/g,'&#39;')}";
-  size_t old_len=(size_t)(b-a),new_len=strlen(fixed);
-  if(new_len>old_len)return;
-  memcpy(a,fixed,new_len);
+  size_t old_len=(size_t)(b-a),new_len=strlen(fixed),cur=strlen(page);
+  if(new_len>old_len&&cur+(new_len-old_len)+1>cap)return;
   memmove(a+new_len,b,strlen(b)+1);
+  memcpy(a,fixed,new_len);
 }
 
 static void astro_catalog_send_text_fixed(int fd,const char *status,const char *ctype,const char *extra,const char *body)
@@ -31,7 +31,7 @@ static void astro_catalog_send_text_fixed(int fd,const char *status,const char *
   }
 
   size_t bl=strlen(body),cl=strlen(astro_catalog_css),jl=strlen(astro_catalog_js);
-  size_t cap=bl+cl+jl+2048;
+  size_t cap=bl+cl+jl+4096;
   char *out=malloc(cap);
   if(!out){send_text(fd,status,ctype,extra,body);return;}
   snprintf(out,cap,"%s",body);
@@ -60,7 +60,7 @@ static void astro_catalog_send_text_fixed(int fd,const char *status,const char *
     memcpy(out+pos,astro_catalog_js,add);
   }
 
-  astro_catalog_repair_js(out);
+  astro_catalog_repair_js(out,cap);
   send_text(fd,status,ctype,extra,out);
   free(out);
 }
