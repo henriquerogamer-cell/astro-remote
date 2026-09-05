@@ -2,7 +2,9 @@
  *
  * Adds Spectrum Library as a built-in source and upgrades the existing
  * Sources screen so any GitHub repository with an .elf asset in its latest
- * release can be installed/updated directly through Astro.
+ * release can be installed/updated directly through Astro. Installable
+ * sources are also mirrored into the Astro Catalog so users do not have to
+ * know which internal tab owns the source registry.
  */
 
 static void astro_ensure_spectrum_source(void)
@@ -34,9 +36,11 @@ static const char astro_source_releases_js[] =
 "function srcLocal(s){let p=String(s.pattern||'').toLowerCase();return P.find(x=>String(x.name||'').toLowerCase().includes(p))||null}"
 "function cleanVersion(v){return String(v||'').replace(/^v/i,'').toLowerCase()}"
 "function stableSourceFile(s,r){let l=srcLocal(s);if(l)return l.name;let b=String(s.pattern||s.name||(r&&r.assetName)||'payload').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/^-+|-+$/g,'');if(!/\\.elf$/i.test(b))b+='.elf';return b}"
+"function sourceKey(u){return String(u||'').toLowerCase().replace(/\\/releases.*$/,'').replace(/\\/$/,'')}"
 "release=async function(s){let api=ghReleaseApi(s.url);if(!api)return null;try{let r=await fetch(api,{cache:'no-store'});if(!r.ok)return null;let j=await r.json(),a=(j.assets||[]).find(x=>/\\.elf$/i.test(String(x.name||'')))||null,d=a&&a.digest?String(a.digest).replace(/^sha256:/i,''):'';return{tag:j.tag_name||j.name||'?',url:j.html_url||s.url,assetName:a?a.name:'',assetUrl:a?a.browser_download_url:'',checksum:d}}catch(e){return null}}"
-"async function sourceMeta(){try{return await fetch('/api/payload-sources',{cache:'no-store'}).then(r=>r.json())}catch(e){return{installed:[]}}}"
+"async function sourceMeta(){try{return await fetch('/api/payload-sources',{cache:'no-store'}).then(r=>r.json())}catch(e){return{items:[],installed:[]}}}"
 "async function installSource(idx){let s=S.find(x=>Number(x.index)===Number(idx));if(!s)return;let rr=rel[s.index]&&rel[s.index].assetUrl?rel[s.index]:await release(s);if(!rr||!rr.assetUrl){alert('A release mais recente dessa fonte não possui arquivo .elf.');return}let file=stableSourceFile(s,rr),u='/api/payload-sources/add?action=catalog-install&name='+encodeURIComponent(s.name||file)+'&url='+encodeURIComponent(rr.assetUrl)+'&file='+encodeURIComponent(file)+'&version='+encodeURIComponent(rr.tag||'?')+'&source='+encodeURIComponent(s.url||'')+'&checksum='+encodeURIComponent(rr.checksum||'');if(typeof note==='function')note('Baixando '+(s.name||file)+'...');let res=await fetch(u,{method:'POST'}),j=await res.json().catch(()=>({}));if(!res.ok){alert('Falha ao instalar: '+(j.error||res.status));return}await loadAll(false);T='sources';renderSources()}"
+"async function sourceCatalogRows(){let m=await sourceMeta(),list=m.items||[],out=[];for(let s of list){let rr=rel[s.index]&&rel[s.index].assetUrl?rel[s.index]:await release(s);if(!rr||!rr.assetUrl)continue;rel[s.index]=rr;out.push({name:s.name||s.pattern||'Fonte ELF',filename:stableSourceFile(s,rr),url:rr.assetUrl,description:'ELF publicado pela fonte GitHub cadastrada no Astro. Atualizações acompanham a release mais recente.',version:rr.tag||'latest',category:'Sources',checksum:rr.checksum||'',source:s.url||'',astro_source:true})}return out}"
 "renderSources=async function(){"
 "sectionTitle.style.display='none';body.className='';"
 "await Promise.all(S.map(async s=>{if(!rel[s.index]||!rel[s.index].assetUrl)rel[s.index]=await release(s)}));"
@@ -51,6 +55,12 @@ static const char astro_source_releases_js[] =
 "}).join('');"
 "body.innerHTML=head+cards;"
 "};"
+"setTimeout(function(){"
+"if(typeof renderCatalog!=='function'||typeof loadCatalog!=='function'||typeof catPaint!=='function'||typeof catFile!=='function')return;"
+"let baseCatFile=catFile;catFile=function(x){return x&&x.filename?String(x.filename):baseCatFile(x)};"
+"let baseLoadCatalog=loadCatalog;loadCatalog=async function(force){await baseLoadCatalog(force);try{let rows=await sourceCatalogRows(),seen=new Set(CAT.map(x=>sourceKey(x.source)||String(x.name||'').toLowerCase()));for(let x of rows){let k=sourceKey(x.source)||String(x.name||'').toLowerCase();if(!seen.has(k)){CAT.push(x);seen.add(k)}}let cats=[...new Set(CAT.map(x=>x.category||'Other'))].sort();catCategory.innerHTML='<option value=\"all\">Todas as categorias</option>'+cats.map(x=>'<option value=\"'+CE(x)+'\">'+CE(x)+'</option>').join('');catLoaded=true;catPaint('catálogo + fontes')}catch(e){console.log('Astro source catalog',e)}};"
+"let baseRenderCatalog=renderCatalog;renderCatalog=function(){baseRenderCatalog();let tabs=body.querySelector('.subtabs');if(tabs&&!document.getElementById('catAddSource')){let b=document.createElement('button');b.id='catAddSource';b.className='primary';b.textContent='＋ Adicionar fonte';b.onclick=async function(){await addSource();T='catalog';renderCatalog()};tabs.appendChild(b)}};"
+"},0);"
 "})();"
 "</script>";
 
