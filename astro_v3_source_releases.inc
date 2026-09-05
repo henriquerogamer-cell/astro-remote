@@ -29,7 +29,7 @@ static void beta_sources_api(int fd)
   beta_sources_api_catalog_base(fd);
 }
 
-static const char astro_source_releases_js[] =
+const char astro_source_releases_js[] =
 "<script>"
 "(function(){"
 "function ghReleaseApi(u){let m=String(u||'').match(/github\\.com\\/([^/]+)\\/([^/#?]+)/i);return m?`https://api.github.com/repos/${m[1]}/${m[2].replace(/\\.git$/,'')}/releases/latest`:null}"
@@ -40,7 +40,7 @@ static const char astro_source_releases_js[] =
 "release=async function(s){let api=ghReleaseApi(s.url);if(!api)return null;try{let r=await fetch(api,{cache:'no-store'});if(!r.ok)return null;let j=await r.json(),a=(j.assets||[]).find(x=>/\\.elf$/i.test(String(x.name||'')))||null,d=a&&a.digest?String(a.digest).replace(/^sha256:/i,''):'';return{tag:j.tag_name||j.name||'?',url:j.html_url||s.url,assetName:a?a.name:'',assetUrl:a?a.browser_download_url:'',checksum:d}}catch(e){return null}}"
 "async function sourceMeta(){try{return await fetch('/api/payload-sources',{cache:'no-store'}).then(r=>r.json())}catch(e){return{items:[],installed:[]}}}"
 "async function installSource(idx){let s=S.find(x=>Number(x.index)===Number(idx));if(!s)return;let rr=rel[s.index]&&rel[s.index].assetUrl?rel[s.index]:await release(s);if(!rr||!rr.assetUrl){alert('A release mais recente dessa fonte não possui arquivo .elf.');return}let file=stableSourceFile(s,rr),u='/api/payload-sources/add?action=catalog-install&name='+encodeURIComponent(s.name||file)+'&url='+encodeURIComponent(rr.assetUrl)+'&file='+encodeURIComponent(file)+'&version='+encodeURIComponent(rr.tag||'?')+'&source='+encodeURIComponent(s.url||'')+'&checksum='+encodeURIComponent(rr.checksum||'');if(typeof note==='function')note('Baixando '+(s.name||file)+'...');let res=await fetch(u,{method:'POST'}),j=await res.json().catch(()=>({}));if(!res.ok){alert('Falha ao instalar: '+(j.error||res.status));return}await loadAll(false);T='sources';renderSources()}"
-"async function sourceCatalogRows(){let m=await sourceMeta(),list=m.items||[],out=[];for(let s of list){let rr=rel[s.index]&&rel[s.index].assetUrl?rel[s.index]:await release(s);if(!rr||!rr.assetUrl)continue;rel[s.index]=rr;out.push({name:s.name||s.pattern||'Fonte ELF',filename:stableSourceFile(s,rr),url:rr.assetUrl,description:'ELF publicado pela fonte GitHub cadastrada no Astro. Atualizações acompanham a release mais recente.',version:rr.tag||'latest',category:'Sources',checksum:rr.checksum||'',source:s.url||'',astro_source:true})}return out}"
+"async function sourceCatalogRows(){let m=await sourceMeta(),list=(typeof S!=='undefined'&&S.length)?S:(m.items||[]),out=[];for(let s of list){let rr=rel[s.index]&&rel[s.index].assetUrl?rel[s.index]:await release(s);if(!rr||!rr.assetUrl)continue;rel[s.index]=rr;out.push({name:s.name||s.pattern||'Fonte ELF',filename:stableSourceFile(s,rr),url:rr.assetUrl,description:'ELF publicado pela fonte GitHub cadastrada no Astro. Atualizações acompanham a release mais recente.',version:rr.tag||'latest',category:'Sources',checksum:rr.checksum||'',source:s.url||'',astro_source:true})}return out}"
 "renderSources=async function(){"
 "sectionTitle.style.display='none';body.className='';"
 "await Promise.all(S.map(async s=>{if(!rel[s.index]||!rel[s.index].assetUrl)rel[s.index]=await release(s)}));"
@@ -59,22 +59,14 @@ static const char astro_source_releases_js[] =
 "if(typeof renderCatalog!=='function'||typeof loadCatalog!=='function'||typeof catPaint!=='function'||typeof catFile!=='function')return;"
 "let baseCatFile=catFile;catFile=function(x){return x&&x.filename?String(x.filename):baseCatFile(x)};"
 "let baseLoadCatalog=loadCatalog;loadCatalog=async function(force){await baseLoadCatalog(force);try{let rows=await sourceCatalogRows(),seen=new Set(CAT.map(x=>sourceKey(x.source)||String(x.name||'').toLowerCase()));for(let x of rows){let k=sourceKey(x.source)||String(x.name||'').toLowerCase();if(!seen.has(k)){CAT.push(x);seen.add(k)}}let cats=[...new Set(CAT.map(x=>x.category||'Other'))].sort();catCategory.innerHTML='<option value=\"all\">Todas as categorias</option>'+cats.map(x=>'<option value=\"'+CE(x)+'\">'+CE(x)+'</option>').join('');catLoaded=true;catPaint('catálogo + fontes')}catch(e){console.log('Astro source catalog',e)}};"
-"let baseRenderCatalog=renderCatalog;renderCatalog=function(){baseRenderCatalog();let tabs=body.querySelector('.subtabs');if(tabs&&!document.getElementById('catAddSource')){let b=document.createElement('button');b.id='catAddSource';b.className='primary';b.textContent='＋ Adicionar fonte';b.onclick=async function(){await addSource();T='catalog';renderCatalog()};tabs.appendChild(b)}};"
+"let baseRenderCatalog=renderCatalog;renderCatalog=function(){baseRenderCatalog();let tabs=body.querySelector('.subtabs');if(tabs&&!document.getElementById('catAddSource')){let b=document.createElement('button');b.id='catAddSource';b.className='primary';b.textContent='＋ Adicionar fonte';b.onclick=async function(){await addSource();await loadAll(false);T='catalog';renderCatalog()};tabs.appendChild(b)}};"
 "},0);"
 "})();"
 "</script>";
 
 static void astro_source_releases_send_text(int fd,const char *status,const char *ctype,const char *extra,const char *body)
 {
-  if(!body||!ctype||!strstr(ctype,"text/html")||!strstr(body,"<h1>Payloads</h1>")||!strstr(body,"payloadPanel")){
-    astro_catalog_send_text_fixed(fd,status,ctype,extra,body);
-    return;
-  }
-  size_t bl=strlen(body),jl=strlen(astro_source_releases_js),cap=bl+jl+2048;
-  char *out=malloc(cap);if(!out){astro_catalog_send_text_fixed(fd,status,ctype,extra,body);return;}
-  snprintf(out,cap,"%s",body);
-  char *end=strstr(out,"</body>");
-  if(end){size_t pos=(size_t)(end-out);memmove(out+pos+jl,out+pos,strlen(out+pos)+1);memcpy(out+pos,astro_source_releases_js,jl);}
-  astro_catalog_send_text_fixed(fd,status,ctype,extra,out);
-  free(out);
+  /* astro_catalog_send_text_fixed now injects both scripts in deterministic
+   * order: catalog first, source integration second. */
+  astro_catalog_send_text_fixed(fd,status,ctype,extra,body);
 }
