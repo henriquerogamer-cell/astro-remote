@@ -122,9 +122,14 @@
  * the legacy api.pkg-zone.com hostname no longer resolves reliably. */
 #include "astro_v3_homebrew_tls.inc"
 
-/* Live community payload metadata + direct upstream install/update support. */
+/* Live community payload metadata + direct upstream install/update support.
+ * The active source list is wrapped so GitHub release sources can also expose
+ * install/update buttons, with Spectrum Library seeded automatically. */
+#define beta_sources_api beta_sources_api_catalog_base
 #include "astro_v3_payload_catalog.inc"
+#undef beta_sources_api
 #include "astro_v3_catalog_clickfix.inc"
+#include "astro_v3_source_releases.inc"
 
 #define v3_homebrew_api v3_homebrew_api_storedb_legacy
 #define v3_homebrew_page v3_homebrew_page_storedb_legacy
@@ -174,9 +179,9 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
 
 /* Keep the Web-card payload library, but replace its Dashboard with the
  * runtime-aware one that also shows ELFs launched outside Astro. Catalog UI
- * is injected only into the active Payloads page at response time. */
+ * and installable GitHub source controls are injected only into this page. */
 #define v3_dashboard v3_dashboard_webcard_legacy
-#define send_text astro_catalog_send_text_fixed
+#define send_text astro_source_releases_send_text
 #include "astro_v3_payload_webcard.inc"
 #undef send_text
 #undef v3_dashboard
