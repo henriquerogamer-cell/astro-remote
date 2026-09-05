@@ -130,6 +130,7 @@
 #undef beta_sources_api
 #include "astro_v3_catalog_clickfix.inc"
 #include "astro_v3_source_releases.inc"
+#include "astro_v3_catalog_native_sources.inc"
 
 #define v3_homebrew_api v3_homebrew_api_storedb_legacy
 #define v3_homebrew_page v3_homebrew_page_storedb_legacy
@@ -179,9 +180,9 @@ static void save_zip_ui_send_text(int fd,const char *status,const char *ctype,co
 
 /* Keep the Web-card payload library, but replace its Dashboard with the
  * runtime-aware one that also shows ELFs launched outside Astro. Catalog UI
- * and installable GitHub source controls are injected only into this page. */
+ * and registered GitHub ELF sources are merged natively in this page. */
 #define v3_dashboard v3_dashboard_webcard_legacy
-#define send_text astro_source_releases_send_text
+#define send_text astro_catalog_native_sources_send_text
 #include "astro_v3_payload_webcard.inc"
 #undef send_text
 #undef v3_dashboard
